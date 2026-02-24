@@ -1,6 +1,5 @@
 // ---------------------------------------------------------------------------
-// SubmitButton — gradient CTA with a hover shimmer and press-scale effect.
-// Shows a spinner when `loading` is true.
+// SubmitButton — purple CTA with spinner on loading.
 // ---------------------------------------------------------------------------
 
 interface SubmitButtonProps {
@@ -12,53 +11,78 @@ export default function SubmitButton({
   loading = false,
   disabled = false,
 }: SubmitButtonProps) {
+  const isInactive = disabled || loading;
+
   return (
     <button
       type="submit"
-      disabled={disabled || loading}
-      className="group relative w-full overflow-hidden rounded-2xl bg-gradient-to-r from-indigo-500 to-purple-600 py-4 text-base font-semibold text-white shadow-lg shadow-indigo-500/25 transition-all duration-300 hover:shadow-xl hover:shadow-indigo-500/30 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60 sm:text-lg"
+      disabled={isInactive}
+      style={{
+        height: 50,
+        padding: "0 20px",
+        borderRadius: 16,
+        background: "linear-gradient(135deg, #6366f1 0%, #818cf8 100%)",
+        color: "white",
+        fontWeight: 600,
+        fontSize: 15,
+        letterSpacing: "-0.01em",
+        border: "none",
+        cursor: isInactive ? "not-allowed" : "pointer",
+        opacity: isInactive ? 0.55 : 1,
+        boxShadow:
+          "0 8px 24px rgba(99, 102, 241, 0.30), inset 0 1px 0 rgba(255,255,255,0.18)",
+        transition: "transform 120ms ease, box-shadow 120ms ease",
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 8,
+        whiteSpace: "nowrap" as const,
+        flexShrink: 0,
+      }}
+      className="submit-btn"
+      onMouseEnter={(e) => {
+        if (!isInactive) {
+          e.currentTarget.style.transform = "translateY(-1px)";
+          e.currentTarget.style.boxShadow =
+            "0 12px 28px rgba(99, 102, 241, 0.38), inset 0 1px 0 rgba(255,255,255,0.18)";
+        }
+      }}
+      onMouseLeave={(e) => {
+        if (!isInactive) {
+          e.currentTarget.style.transform = "translateY(0)";
+          e.currentTarget.style.boxShadow =
+            "0 8px 24px rgba(99, 102, 241, 0.30), inset 0 1px 0 rgba(255,255,255,0.18)";
+        }
+      }}
+      onMouseDown={(e) => {
+        if (!isInactive) {
+          e.currentTarget.style.transform = "scale(0.97)";
+          e.currentTarget.style.boxShadow =
+            "0 4px 12px rgba(99, 102, 241, 0.25)";
+        }
+      }}
+      onMouseUp={(e) => {
+        if (!isInactive) {
+          e.currentTarget.style.transform = "translateY(-1px)";
+          e.currentTarget.style.boxShadow =
+            "0 12px 28px rgba(99, 102, 241, 0.38), inset 0 1px 0 rgba(255,255,255,0.18)";
+        }
+      }}
     >
-      <span className="relative z-10 flex items-center justify-center gap-2">
-        {loading ? (
-          /* Spinner */
-          <svg
-            className="h-5 w-5 animate-spin"
-            xmlns="http://www.w3.org/2000/svg"
-            fill="none"
-            viewBox="0 0 24 24"
-            aria-hidden="true"
-          >
-            <circle
-              className="opacity-25"
-              cx="12"
-              cy="12"
-              r="10"
-              stroke="currentColor"
-              strokeWidth="4"
-            />
-            <path
-              className="opacity-75"
-              fill="currentColor"
-              d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
-            />
-          </svg>
-        ) : (
-          /* Sparkle icon */
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            viewBox="0 0 20 20"
-            fill="currentColor"
-            className="h-5 w-5 transition-transform duration-300 group-hover:rotate-12"
-            aria-hidden="true"
-          >
-            <path d="M10.75 4.75a.75.75 0 0 0-1.5 0v4.5h-4.5a.75.75 0 0 0 0 1.5h4.5v4.5a.75.75 0 0 0 1.5 0v-4.5h4.5a.75.75 0 0 0 0-1.5h-4.5v-4.5Z" />
-          </svg>
-        )}
-        {loading ? "Searching…" : "Find Experiences"}
-      </span>
-
-      {/* Hover shimmer overlay */}
-      <div className="absolute inset-0 -translate-x-full bg-gradient-to-r from-transparent via-white/10 to-transparent transition-transform duration-700 group-hover:translate-x-full" />
+      {loading && (
+        <span
+          style={{
+            width: 18,
+            height: 18,
+            border: "2.5px solid rgba(255,255,255,0.3)",
+            borderTopColor: "white",
+            borderRadius: "50%",
+            animation: "spin 0.6s linear infinite",
+            display: "inline-block",
+            flexShrink: 0,
+          }}
+        />
+      )}
+      {loading ? "Searching…" : "Find Experiences →"}
     </button>
   );
 }

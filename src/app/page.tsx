@@ -1,9 +1,9 @@
 "use client";
 
 import { useCallback, useRef, useState } from "react";
-import BackgroundOrbs from "@/components/BackgroundOrbs";
 import GlobeIcon from "@/components/GlobeIcon";
 import SearchForm from "@/components/SearchForm";
+import BackgroundOrbs from "@/components/BackgroundOrbs";
 import { packageById, type TravelPackage } from "@/lib/data";
 
 // ---------------------------------------------------------------------------
@@ -16,8 +16,18 @@ interface SearchResult {
 }
 
 // ---------------------------------------------------------------------------
-// Home — the single-page entry point.
-// Owns every piece of search state and delegates rendering to sub-components.
+// Greeting helper — time-aware, like the reference design.
+// ---------------------------------------------------------------------------
+
+function getGreeting(): string {
+  const h = new Date().getHours();
+  if (h < 12) return "Good morning";
+  if (h < 17) return "Good afternoon";
+  return "Good evening";
+}
+
+// ---------------------------------------------------------------------------
+// Home — premium glassmorphism single-page entry point.
 // ---------------------------------------------------------------------------
 
 export default function Home() {
@@ -29,12 +39,10 @@ export default function Home() {
   const [hasSearched, setHasSearched] = useState(false);
   const [hint, setHint] = useState<string | undefined>();
 
-  // Abort controller ref — lets us cancel an in-flight request on re-submit
   const abortRef = useRef<AbortController | null>(null);
 
   // ── Helpers ─────────────────────────────────────────────────────────────
 
-  /** Reset to the initial state so the user can start fresh. */
   const resetSearch = useCallback(() => {
     setQuery("");
     setResults([]);
@@ -49,20 +57,15 @@ export default function Home() {
     async (e: React.FormEvent) => {
       e.preventDefault();
 
-      // — Guard: empty or whitespace-only query → show a helpful hint
       const trimmed = query.trim();
       if (!trimmed) {
         setHint("Tell us what you're looking for — even a vague idea works!");
         return;
       }
 
-      // Clear any previous hint the moment the user submits something real
       setHint(undefined);
-
-      // Don't double-fire while a request is already in flight
       if (loading) return;
 
-      // Cancel a previous in-flight request (race condition guard)
       abortRef.current?.abort();
       const controller = new AbortController();
       abortRef.current = controller;
@@ -80,11 +83,8 @@ export default function Home() {
           signal: controller.signal,
         });
 
-        // If the user started a new search while this one was in-flight, bail
         if (controller.signal.aborted) return;
 
-        // Try to parse the response body regardless of status — the API always
-        // returns JSON with either `matches` or `error`.
         let data: Record<string, unknown>;
         try {
           data = await res.json();
@@ -93,7 +93,6 @@ export default function Home() {
           return;
         }
 
-        // Server returned an error message
         if (!res.ok) {
           setError(
             (data.error as string) ??
@@ -102,7 +101,6 @@ export default function Home() {
           return;
         }
 
-        // Map returned IDs → local inventory. Unknown IDs are silently dropped.
         const matches: SearchResult[] = [];
         for (const m of (data.matches ?? []) as {
           id: number;
@@ -114,9 +112,7 @@ export default function Home() {
 
         setResults(matches);
       } catch (err) {
-        // Aborted by the user (new search started) — do nothing
         if (err instanceof DOMException && err.name === "AbortError") return;
-
         setError(
           "Network error — please check your connection and try again.",
         );
@@ -127,96 +123,192 @@ export default function Home() {
     [query, loading],
   );
 
-  // ── Derived UI flags ────────────────────────────────────────────────────
-  // Keeps the JSX clean — one boolean per visual state.
+  // ── Derived flags ───────────────────────────────────────────────────────
 
   const showSkeleton = loading;
   const showError = !loading && !!error;
   const showResults = !loading && !error && results.length > 0;
   const showEmpty = hasSearched && !loading && !error && results.length === 0;
+  const showPlaceholder = !hasSearched && !loading;
 
   // ── Render ──────────────────────────────────────────────────────────────
 
   return (
-    <div className="relative flex min-h-screen items-center justify-center bg-gradient-to-br from-[#0f0c29] via-[#302b63] to-[#24243e]">
+    <div
+      style={{
+        minHeight: "100vh",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: "40px 16px",
+        position: "relative",
+        overflow: "hidden",
+      }}
+    >
       <BackgroundOrbs />
-
-      <main className="relative z-10 mx-4 w-full max-w-2xl py-16">
-        {/* ── Frosted glass card ────────────────────────────────── */}
-        <div className="rounded-3xl border border-white/[0.08] bg-white/[0.05] p-8 shadow-2xl backdrop-blur-xl sm:p-12">
-          {/* Header */}
-          <header className="mb-10 flex flex-col items-center text-center">
-            <div className="mb-6">
-              <GlobeIcon />
-            </div>
-
-            <h1 className="mb-3 text-4xl font-bold tracking-tight text-white sm:text-5xl">
-              Smart Travel Scout
-            </h1>
-
-            <p className="max-w-md text-base leading-relaxed text-white/50 sm:text-lg">
-              Describe your dream trip and let AI find the perfect experience
-              from our curated Sri Lankan collection.
-            </p>
-          </header>
-
-          {/* Search form — passes hint down so the input can highlight */}
-          <SearchForm
-            query={query}
-            onChange={(v) => {
-              setQuery(v);
-              // Auto-clear the hint once the user starts typing again
-              if (hint && v.trim()) setHint(undefined);
-            }}
-            onSubmit={handleSearch}
-            loading={loading}
-            hint={hint}
-          />
-
-          {/* Trust footer */}
-          <p className="mt-8 text-center text-xs tracking-wide text-white/20">
-            Powered by AI &middot; Grounded to curated inventory only
-          </p>
+      <main className="travel-card" style={{ position: "relative", zIndex: 1 }}>
+        {/* Badge */}
+        <div
+          style={{
+            display: "inline-block",
+            background: "rgba(99, 102, 241, 0.1)",
+            color: "#6366f1",
+            borderRadius: 999,
+            padding: "5px 12px",
+            fontSize: 10.5,
+            fontWeight: 700,
+            textTransform: "uppercase",
+            letterSpacing: "0.12em",
+            border: "1px solid rgba(99, 102, 241, 0.18)",
+          }}
+        >
+          AI Travel Assistant
         </div>
 
-        {/* ── Results Section ─────────────────────────────────────── */}
+        {/* Headline */}
+        <h1 className="travel-headline">
+          {getGreeting()},
+          <br />
+          discover your perfect getaway.
+        </h1>
+
+        {/* Subtitle */}
+        <p
+          style={{
+            fontSize: 14,
+            fontWeight: 400,
+            color: "#64748b",
+            letterSpacing: "-0.01em",
+            marginTop: 4,
+          }}
+        >
+          AI-powered recommendations from our{" "}
+          <span style={{ fontWeight: 700, color: "#6366f1" }}>
+            curated Sri Lankan
+          </span>{" "}
+          collection.
+        </p>
+
+        {/* Search form */}
+        <SearchForm
+          query={query}
+          onChange={(v) => {
+            setQuery(v);
+            if (hint && v.trim()) setHint(undefined);
+          }}
+          onSubmit={handleSearch}
+          loading={loading}
+          hint={hint}
+        />
+
+        {/* ── Results area ──────────────────────────────────────── */}
+
+        {/* Placeholder — before any search */}
+        {showPlaceholder && (
+          <div
+            style={{
+              background: "rgba(255, 255, 255, 0.35)",
+              backdropFilter: "blur(12px)",
+              WebkitBackdropFilter: "blur(12px)",
+              borderRadius: 22,
+              border: "1px dashed rgba(148, 163, 184, 0.35)",
+              padding: "32px 20px",
+              textAlign: "center",
+            }}
+          >
+            <div style={{ marginBottom: 12 }}>
+              <GlobeIcon />
+            </div>
+            <p style={{ fontSize: 14, color: "#64748b", maxWidth: 260, margin: "0 auto" }}>
+              Search or tap a tag above to see your personalized travel
+              itinerary.
+            </p>
+          </div>
+        )}
 
         {/* Loading skeleton */}
         {showSkeleton && (
-          <div className="mt-6 space-y-4" aria-busy="true" aria-live="polite">
+          <div
+            className="animate-pulse"
+            style={{
+              marginTop: 20,
+              display: "flex",
+              flexDirection: "column",
+              gap: 12,
+            }}
+            aria-busy="true"
+            aria-live="polite"
+          >
             {[1, 2, 3].map((i) => (
               <div
                 key={i}
-                className="animate-pulse rounded-2xl border border-white/[0.06] bg-white/[0.04] p-6 backdrop-blur-lg"
+                style={{
+                  background: "white",
+                  borderRadius: 16,
+                  border: "1px solid #f1f5f9",
+                  padding: 20,
+                }}
               >
-                <div className="mb-3 h-5 w-2/3 rounded-lg bg-white/[0.08]" />
-                <div className="mb-2 h-4 w-1/2 rounded-lg bg-white/[0.06]" />
-                <div className="h-4 w-full rounded-lg bg-white/[0.04]" />
+                <div
+                  className="skeleton-shimmer"
+                  style={{ height: 16, width: "60%", marginBottom: 10 }}
+                />
+                <div
+                  className="skeleton-shimmer"
+                  style={{ height: 14, width: "40%", marginBottom: 8 }}
+                />
+                <div
+                  className="skeleton-shimmer"
+                  style={{ height: 14, width: "100%" }}
+                />
               </div>
             ))}
           </div>
         )}
 
-        {/* Error state — friendly message + retry button */}
+        {/* Error state */}
         {showError && (
-          <div className="mt-6 rounded-2xl border border-red-500/20 bg-red-500/[0.08] p-6 text-center backdrop-blur-lg">
-            <p className="text-sm leading-relaxed text-red-300">{error}</p>
-
+          <div
+            className="animate-shake"
+            style={{
+              borderRadius: 16,
+              border: "1px solid #fecaca",
+              background: "#fef2f2",
+              padding: 20,
+              textAlign: "center",
+              marginTop: 20,
+            }}
+          >
+            <p style={{ fontSize: 14, color: "#dc2626", marginBottom: 12 }}>
+              {error}
+            </p>
             <button
               type="button"
               onClick={handleSearch as unknown as React.MouseEventHandler}
-              className="mt-4 inline-flex items-center gap-1.5 rounded-xl bg-white/[0.06] px-4 py-2 text-xs font-medium text-white/60 transition-colors hover:bg-white/[0.1] hover:text-white/80"
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 6,
+                borderRadius: 999,
+                border: "1px solid #fecaca",
+                background: "white",
+                padding: "8px 16px",
+                fontSize: 13,
+                fontWeight: 600,
+                color: "#dc2626",
+                cursor: "pointer",
+              }}
             >
               <svg
                 xmlns="http://www.w3.org/2000/svg"
                 viewBox="0 0 16 16"
                 fill="currentColor"
-                className="h-3.5 w-3.5"
+                style={{ width: 14, height: 14 }}
                 aria-hidden="true"
               >
                 <path
                   fillRule="evenodd"
-                  d="M13.836 2.477a.75.75 0 0 1 .75.75v3.182a.75.75 0 0 1-.75.75h-3.182a.75.75 0 0 1 0-1.5h1.37l-.84-.841a4.5 4.5 0 0 0-7.08.932.75.75 0 0 1-1.3-.75 6 6 0 0 1 9.44-1.242l.842.84V3.227a.75.75 0 0 1 .75-.75Zm-.911 7.5A.75.75 0 0 1 13.199 11a6 6 0 0 1-9.44 1.241l-.84-.84v1.371a.75.75 0 0 1-1.5 0V9.591a.75.75 0 0 1 .75-.75H5.35a.75.75 0 1 1 0 1.5H3.98l.841.841a4.5 4.5 0 0 0 7.08-.932.75.75 0 0 1 1.025-.273Z"
+                  d="M13.836 2.477a.75.75 0 0 1 .75.75v3.182a.75.75 0 0 1-.75.75h-3.182a.75.75 0 0 1 0-1.5h1.37l-.84-.841a4.5 4.5 0 0 0-7.08.932.75.75 0 0 1-1.3-.75 6 6 0 0 1 9.44-1.242l.842.84V3.227a.75.75 0 0 1 .75-.75Zm-.911 7.5A.75.75 0 0 1 13.199 11a6 6 0 0 1-9.44 1.241l-.84-.84v1.371a.75.75 0 0 1-1.5 0V9.591a.75.75 0 0 1 .75-.75H5.35a.75.75 0 0 1 0 1.5H3.98l.841.841a4.5 4.5 0 0 0 7.08-.932.75.75 0 0 1 1.025-.273Z"
                   clipRule="evenodd"
                 />
               </svg>
@@ -227,40 +319,83 @@ export default function Home() {
 
         {/* Results cards */}
         {showResults && (
-          <div className="mt-6 space-y-4" aria-live="polite">
-            <div className="flex items-center justify-between px-1">
-              <p className="text-sm font-medium tracking-wide text-white/40">
+          <div style={{ marginTop: 20 }} aria-live="polite">
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                marginBottom: 12,
+              }}
+            >
+              <p style={{ fontSize: 13, fontWeight: 500, color: "#94a3b8" }}>
                 {results.length} experience
                 {results.length !== 1 && "s"} found
               </p>
-
-              {/* New search action */}
               <button
                 type="button"
                 onClick={resetSearch}
-                className="text-xs font-medium text-indigo-400/60 transition-colors hover:text-indigo-300"
+                style={{
+                  fontSize: 13,
+                  fontWeight: 600,
+                  color: "#7c3aed",
+                  background: "none",
+                  border: "none",
+                  cursor: "pointer",
+                }}
               >
                 New search
               </button>
             </div>
 
-            {results.map(({ package: pkg, reason }) => (
+            {results.map(({ package: pkg, reason }, idx) => (
               <div
                 key={pkg.id}
-                className="group rounded-2xl border border-white/[0.08] bg-white/[0.05] p-6 backdrop-blur-lg transition-all duration-300 hover:border-indigo-500/20 hover:bg-white/[0.07]"
+                style={{
+                  background: "white",
+                  borderRadius: 16,
+                  border: "1px solid #f1f5f9",
+                  padding: 20,
+                  marginBottom: 10,
+                  boxShadow: "0 2px 12px rgba(0,0,0,0.05)",
+                  animation: `fadeSlideIn 0.4s ${idx * 0.08}s both`,
+                }}
               >
-                {/* Title & Price */}
-                <div className="mb-3 flex items-start justify-between gap-4">
+                {/* Title & location/price */}
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "flex-start",
+                    gap: 12,
+                  }}
+                >
                   <div>
-                    <h3 className="text-lg font-semibold text-white">
+                    <h3
+                      style={{
+                        fontSize: 16,
+                        fontWeight: 700,
+                        color: "#0f172a",
+                        margin: 0,
+                      }}
+                    >
                       {pkg.title}
                     </h3>
-                    <p className="mt-0.5 flex items-center gap-1.5 text-sm text-white/50">
+                    <p
+                      style={{
+                        fontSize: 13,
+                        color: "#64748b",
+                        marginTop: 4,
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 4,
+                      }}
+                    >
                       <svg
                         xmlns="http://www.w3.org/2000/svg"
                         viewBox="0 0 16 16"
                         fill="currentColor"
-                        className="h-3.5 w-3.5"
+                        style={{ width: 12, height: 12, flexShrink: 0 }}
                         aria-hidden="true"
                       >
                         <path
@@ -269,22 +404,31 @@ export default function Home() {
                           clipRule="evenodd"
                         />
                       </svg>
-                      {pkg.location}
+                      {pkg.location} · ${pkg.price}
                     </p>
                   </div>
-
-                  {/* Price badge */}
-                  <span className="shrink-0 rounded-xl bg-indigo-500/15 px-3 py-1.5 text-sm font-semibold text-indigo-300">
-                    ${pkg.price}
-                  </span>
                 </div>
 
                 {/* Tags */}
-                <div className="mb-3 flex flex-wrap gap-2">
+                <div
+                  style={{
+                    display: "flex",
+                    flexWrap: "wrap",
+                    gap: 6,
+                    marginTop: 10,
+                  }}
+                >
                   {pkg.tags.map((tag) => (
                     <span
                       key={tag}
-                      className="rounded-lg bg-white/[0.06] px-2.5 py-0.5 text-xs font-medium text-white/40"
+                      style={{
+                        borderRadius: 999,
+                        background: "#f3f4f6",
+                        padding: "3px 10px",
+                        fontSize: 11,
+                        fontWeight: 500,
+                        color: "#6b7280",
+                      }}
                     >
                       {tag}
                     </span>
@@ -292,35 +436,55 @@ export default function Home() {
                 </div>
 
                 {/* Why this matches */}
-                <div className="flex items-start gap-2 rounded-xl bg-indigo-500/[0.06] px-3 py-2.5">
-                  <svg
-                    xmlns="http://www.w3.org/2000/svg"
-                    viewBox="0 0 16 16"
-                    fill="currentColor"
-                    className="mt-0.5 h-3.5 w-3.5 shrink-0 text-indigo-400/70"
-                    aria-hidden="true"
-                  >
-                    <path d="M7.324 3.073a.75.75 0 0 1 1.352 0l.47 1.066a.75.75 0 0 0 .398.398l1.066.47a.75.75 0 0 1 0 1.352l-1.066.47a.75.75 0 0 0-.398.398l-.47 1.066a.75.75 0 0 1-1.352 0l-.47-1.066a.75.75 0 0 0-.398-.398l-1.066-.47a.75.75 0 0 1 0-1.352l1.066-.47a.75.75 0 0 0 .398-.398l.47-1.066ZM3.29 10.218a.75.75 0 0 1 1.42 0l.216.614a.75.75 0 0 0 .44.44l.614.216a.75.75 0 0 1 0 1.42l-.614.216a.75.75 0 0 0-.44.44l-.216.614a.75.75 0 0 1-1.42 0l-.216-.614a.75.75 0 0 0-.44-.44l-.614-.216a.75.75 0 0 1 0-1.42l.614-.216a.75.75 0 0 0 .44-.44l.216-.614ZM11.727 10.218a.75.75 0 0 1 1.42 0l.216.614a.75.75 0 0 0 .44.44l.614.216a.75.75 0 0 1 0 1.42l-.614.216a.75.75 0 0 0-.44.44l-.216.614a.75.75 0 0 1-1.42 0l-.216-.614a.75.75 0 0 0-.44-.44l-.614-.216a.75.75 0 0 1 0-1.42l.614-.216a.75.75 0 0 0 .44-.44l.216-.614Z" />
-                  </svg>
-                  <p className="text-sm leading-relaxed text-indigo-200/70">
-                    {reason}
-                  </p>
-                </div>
+                <p
+                  style={{
+                    marginTop: 10,
+                    fontSize: 13,
+                    fontWeight: 500,
+                    color: "#7c3aed",
+                    display: "flex",
+                    alignItems: "flex-start",
+                    gap: 6,
+                  }}
+                >
+                  <span style={{ flexShrink: 0 }}>✦</span>
+                  <span>{reason}</span>
+                </p>
               </div>
             ))}
           </div>
         )}
 
-        {/* Empty state — searched but nothing matched (conflicting / niche query) */}
+        {/* Empty state — no matches */}
         {showEmpty && (
-          <div className="mt-6 rounded-2xl border border-white/[0.06] bg-white/[0.04] p-8 text-center backdrop-blur-lg">
-            {/* Shrug icon */}
-            <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-white/[0.05]">
+          <div
+            style={{
+              background: "rgba(255, 255, 255, 0.35)",
+              backdropFilter: "blur(12px)",
+              WebkitBackdropFilter: "blur(12px)",
+              borderRadius: 22,
+              border: "1px dashed rgba(148, 163, 184, 0.35)",
+              padding: "32px 20px",
+              textAlign: "center",
+            }}
+          >
+            <div
+              style={{
+                width: 48,
+                height: 48,
+                borderRadius: 12,
+                background: "#f1f5f9",
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+                marginBottom: 12,
+              }}
+            >
               <svg
                 xmlns="http://www.w3.org/2000/svg"
                 viewBox="0 0 20 20"
-                fill="currentColor"
-                className="h-6 w-6 text-white/30"
+                fill="#94a3b8"
+                style={{ width: 20, height: 20 }}
                 aria-hidden="true"
               >
                 <path
@@ -331,32 +495,56 @@ export default function Home() {
               </svg>
             </div>
 
-            <p className="mb-2 text-sm font-medium text-white/50">
-              No matching experiences found
+            <p
+              style={{
+                fontSize: 14,
+                fontWeight: 600,
+                color: "#475569",
+                marginBottom: 4,
+              }}
+            >
+              No matching experiences
             </p>
-            <p className="mx-auto max-w-sm text-xs leading-relaxed text-white/30">
-              Your request may combine constraints that don&apos;t overlap in our
-              current inventory (e.g. &quot;cold beach&quot;). Try focusing on
-              one vibe — like &quot;relaxing beach trip&quot; or &quot;mountain
-              hiking adventure&quot; — and we&apos;ll do our best.
+            <p
+              style={{
+                fontSize: 13,
+                color: "#94a3b8",
+                maxWidth: 280,
+                margin: "0 auto",
+              }}
+            >
+              Your request may combine constraints that don&apos;t overlap. Try
+              focusing on one vibe.
             </p>
 
-            {/* Try again link */}
             <button
               type="button"
               onClick={resetSearch}
-              className="mt-5 inline-flex items-center gap-1.5 text-xs font-medium text-indigo-400/60 transition-colors hover:text-indigo-300"
+              style={{
+                marginTop: 16,
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 6,
+                borderRadius: 999,
+                background: "#f5f3ff",
+                border: "none",
+                padding: "8px 16px",
+                fontSize: 13,
+                fontWeight: 600,
+                color: "#7c3aed",
+                cursor: "pointer",
+              }}
             >
               <svg
                 xmlns="http://www.w3.org/2000/svg"
                 viewBox="0 0 16 16"
                 fill="currentColor"
-                className="h-3.5 w-3.5"
+                style={{ width: 14, height: 14 }}
                 aria-hidden="true"
               >
                 <path
                   fillRule="evenodd"
-                  d="M13.836 2.477a.75.75 0 0 1 .75.75v3.182a.75.75 0 0 1-.75.75h-3.182a.75.75 0 0 1 0-1.5h1.37l-.84-.841a4.5 4.5 0 0 0-7.08.932.75.75 0 0 1-1.3-.75 6 6 0 0 1 9.44-1.242l.842.84V3.227a.75.75 0 0 1 .75-.75Zm-.911 7.5A.75.75 0 0 1 13.199 11a6 6 0 0 1-9.44 1.241l-.84-.84v1.371a.75.75 0 0 1-1.5 0V9.591a.75.75 0 0 1 .75-.75H5.35a.75.75 0 1 1 0 1.5H3.98l.841.841a4.5 4.5 0 0 0 7.08-.932.75.75 0 0 1 1.025-.273Z"
+                  d="M13.836 2.477a.75.75 0 0 1 .75.75v3.182a.75.75 0 0 1-.75.75h-3.182a.75.75 0 0 1 0-1.5h1.37l-.84-.841a4.5 4.5 0 0 0-7.08.932.75.75 0 0 1-1.3-.75 6 6 0 0 1 9.44-1.242l.842.84V3.227a.75.75 0 0 1 .75-.75Zm-.911 7.5A.75.75 0 0 1 13.199 11a6 6 0 0 1-9.44 1.241l-.84-.84v1.371a.75.75 0 0 1-1.5 0V9.591a.75.75 0 0 1 .75-.75H5.35a.75.75 0 0 1 0 1.5H3.98l.841.841a4.5 4.5 0 0 0 7.08-.932.75.75 0 0 1 1.025-.273Z"
                   clipRule="evenodd"
                 />
               </svg>
@@ -364,6 +552,18 @@ export default function Home() {
             </button>
           </div>
         )}
+
+        {/* Footer */}
+        <p
+          style={{
+            fontSize: 12,
+            color: "#94a3b8",
+            textAlign: "center",
+            marginTop: 28,
+          }}
+        >
+          Built by ChaminduCode · Smart Travel Scout
+        </p>
       </main>
     </div>
   );

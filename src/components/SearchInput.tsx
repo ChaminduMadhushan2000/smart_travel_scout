@@ -1,7 +1,5 @@
 // ---------------------------------------------------------------------------
-// SearchInput — frosted glass search field with leading magnifying-glass icon.
-// Purely presentational; state is lifted to the parent.
-// Shows an optional hint message below the input (validation, char count, etc.)
+// SearchInput — search field with left icon, focus ring, clear button.
 // ---------------------------------------------------------------------------
 
 const MAX_QUERY_LENGTH = 500;
@@ -10,7 +8,6 @@ interface SearchInputProps {
   value: string;
   onChange: (value: string) => void;
   disabled?: boolean;
-  /** Optional hint shown below the input (e.g. "Please enter a query"). */
   hint?: string;
 }
 
@@ -21,25 +18,65 @@ export default function SearchInput({
   hint,
 }: SearchInputProps) {
   const charCount = value.length;
-  const nearLimit = charCount >= MAX_QUERY_LENGTH * 0.85; // 85% → show count
+  const nearLimit = charCount >= MAX_QUERY_LENGTH * 0.85;
   const overLimit = charCount > MAX_QUERY_LENGTH;
 
   return (
-    <div>
-      <div className="relative">
-        {/* Leading icon */}
-        <div className="pointer-events-none absolute inset-y-0 left-4 flex items-center">
+    <div style={{ minWidth: 0, flex: 1 }}>
+      <div
+        style={{
+          position: "relative",
+          height: 50,
+          background: "rgba(255, 255, 255, 0.72)",
+          border: hint
+            ? "1px solid #f59e0b"
+            : "1px solid rgba(148, 163, 184, 0.22)",
+          borderRadius: 16,
+          boxShadow: "inset 0 1px 2px rgba(15, 23, 42, 0.04)",
+          transition: "border-color 200ms ease, box-shadow 200ms ease",
+          opacity: disabled ? 0.5 : 1,
+        }}
+        onFocus={(e) => {
+          if (!hint) {
+            e.currentTarget.style.borderColor = "rgba(99, 102, 241, 0.45)";
+            e.currentTarget.style.boxShadow =
+              "0 0 0 3.5px rgba(99, 102, 241, 0.10), inset 0 1px 2px rgba(15,23,42,0.04)";
+          }
+        }}
+        onBlur={(e) => {
+          e.currentTarget.style.borderColor = hint
+            ? "#f59e0b"
+            : "rgba(148, 163, 184, 0.22)";
+          e.currentTarget.style.boxShadow =
+            "inset 0 1px 2px rgba(15, 23, 42, 0.04)";
+        }}
+      >
+        {/* Search icon */}
+        <div
+          style={{
+            position: "absolute",
+            top: 0,
+            bottom: 0,
+            left: 0,
+            display: "flex",
+            alignItems: "center",
+            paddingLeft: 16,
+            pointerEvents: "none",
+          }}
+        >
           <svg
             xmlns="http://www.w3.org/2000/svg"
-            viewBox="0 0 20 20"
-            fill="currentColor"
-            className="h-5 w-5 text-white/30"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="#94a3b8"
+            style={{ width: 18, height: 18 }}
             aria-hidden="true"
           >
             <path
-              fillRule="evenodd"
-              d="M9 3.5a5.5 5.5 0 1 0 0 11 5.5 5.5 0 0 0 0-11ZM2 9a7 7 0 1 1 12.452 4.391l3.328 3.329a.75.75 0 1 1-1.06 1.06l-3.329-3.328A7 7 0 0 1 2 9Z"
-              clipRule="evenodd"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
             />
           </svg>
         </div>
@@ -49,45 +86,95 @@ export default function SearchInput({
           value={value}
           onChange={(e) => onChange(e.target.value)}
           disabled={disabled}
-          maxLength={MAX_QUERY_LENGTH + 10} // soft buffer — Zod enforces on submit
-          placeholder='e.g. "a chilled beach weekend with surfing vibes under $100"'
+          maxLength={MAX_QUERY_LENGTH + 10}
+          placeholder="Describe your dream trip..."
           aria-label="Describe your ideal travel experience"
           aria-invalid={!!hint || overLimit}
-          className={[
-            "w-full rounded-2xl border py-4 pl-12 pr-4 text-base text-white placeholder-white/25",
-            "outline-none transition-all duration-300 sm:text-lg",
-            "focus:border-indigo-500/50 focus:bg-white/[0.07] focus:ring-2 focus:ring-indigo-500/20",
-            "disabled:cursor-not-allowed disabled:opacity-50",
-            hint
-              ? "border-amber-400/40 bg-white/[0.05]"
-              : "border-white/[0.08] bg-white/[0.04]",
-          ].join(" ")}
+          style={{
+            width: "100%",
+            height: "100%",
+            borderRadius: 16,
+            border: "none",
+            background: "transparent",
+            paddingLeft: 44,
+            paddingRight: value ? 36 : 14,
+            fontSize: 15,
+            fontWeight: 500,
+            color: "#0f172a",
+            outline: "none",
+            cursor: disabled ? "not-allowed" : "text",
+          }}
         />
-      </div>
 
-      {/* Footer row: hint on the left, character count on the right */}
-      <div className="mt-2 flex items-center justify-between px-1">
-        {/* Hint / validation message */}
-        {hint ? (
-          <p className="text-xs text-amber-300/80" role="alert">
-            {hint}
-          </p>
-        ) : (
-          <span /> /* empty spacer */
-        )}
-
-        {/* Character count — only visible when approaching the limit */}
-        {nearLimit && (
-          <p
-            className={[
-              "text-xs tabular-nums transition-colors",
-              overLimit ? "text-red-400/80" : "text-white/25",
-            ].join(" ")}
+        {/* Clear button */}
+        {value && !disabled && (
+          <button
+            type="button"
+            onClick={() => onChange("")}
+            style={{
+              position: "absolute",
+              right: 10,
+              top: "50%",
+              transform: "translateY(-50%)",
+              width: 24,
+              height: 24,
+              display: "grid",
+              placeItems: "center",
+              borderRadius: "50%",
+              border: "none",
+              background: "transparent",
+              color: "#94a3b8",
+              cursor: "pointer",
+            }}
+            aria-label="Clear search"
           >
-            {charCount}/{MAX_QUERY_LENGTH}
-          </p>
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              viewBox="0 0 16 16"
+              fill="currentColor"
+              style={{ width: 14, height: 14 }}
+            >
+              <path d="M5.28 4.22a.75.75 0 0 0-1.06 1.06L6.94 8l-2.72 2.72a.75.75 0 1 0 1.06 1.06L8 9.06l2.72 2.72a.75.75 0 1 0 1.06-1.06L9.06 8l2.72-2.72a.75.75 0 0 0-1.06-1.06L8 6.94 5.28 4.22Z" />
+            </svg>
+          </button>
         )}
       </div>
+
+      {/* Hint + character count */}
+      {(hint || nearLimit) && (
+        <div
+          style={{
+            marginTop: 6,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            paddingLeft: 4,
+            paddingRight: 4,
+          }}
+        >
+          {hint ? (
+            <p
+              style={{ fontSize: 12, fontWeight: 600, color: "#d97706" }}
+              role="alert"
+            >
+              {hint}
+            </p>
+          ) : (
+            <span />
+          )}
+          {nearLimit && (
+            <p
+              style={{
+                fontSize: 12,
+                color: overLimit ? "#ef4444" : "#94a3b8",
+                fontVariantNumeric: "tabular-nums",
+              }}
+            >
+              {charCount}/{MAX_QUERY_LENGTH}
+            </p>
+          )}
+        </div>
+      )}
     </div>
   );
 }
