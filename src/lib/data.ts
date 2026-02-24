@@ -49,3 +49,11 @@ export const travelPackages: readonly TravelPackage[] = [
 
 /** Pre-computed set of valid IDs — shared by the API route for O(1) lookups. */
 export const VALID_IDS = new Set(travelPackages.map((p) => p.id));
+
+/**
+ * O(1) lookup map: id → TravelPackage.
+ * Prefer this over `travelPackages.find()` on the client when mapping results.
+ */
+export const packageById = new Map(
+  travelPackages.map((p) => [p.id, p]),
+);

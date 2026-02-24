@@ -4,13 +4,25 @@ import { z } from "zod";
 import { travelPackages, VALID_IDS } from "@/lib/data";
 
 // ---------------------------------------------------------------------------
+// Constants — tune behaviour in one place.
+// ---------------------------------------------------------------------------
+const MAX_QUERY_LENGTH = 500;
+const LLM_TIMEOUT_MS = 15_000; // 15 s — generous, but prevents hanging forever
+
+// ---------------------------------------------------------------------------
 // Request schema — validates the incoming POST body before we touch the LLM.
+// A `.transform(trim)` strips whitespace so "   " is caught by `.min(1)`.
 // ---------------------------------------------------------------------------
 const RequestSchema = z.object({
   query: z
     .string()
-    .min(1, "Query must not be empty")
-    .max(500, "Query must be 500 characters or fewer"),
+    .transform((s) => s.trim())
+    .pipe(
+      z
+        .string()
+        .min(1, "Please describe the kind of trip you're looking for.")
+        .max(MAX_QUERY_LENGTH, `Query must be ${MAX_QUERY_LENGTH} characters or fewer.`),
+    ),
 });
 
 // ---------------------------------------------------------------------------
@@ -72,18 +84,18 @@ Respond with ONLY valid JSON — no markdown, no code fences, no extra text:
 // ---------------------------------------------------------------------------
 export async function POST(req: NextRequest) {
   try {
-    // 0. Ensure API key is available at runtime
+    // ── 0. Ensure API key is available at runtime ────────────────────────
     const apiKey = process.env.OPENAI_API_KEY;
     if (!apiKey) {
       return NextResponse.json(
-        { error: "Server configuration error: missing API key." },
+        { error: "Server configuration error — the AI service isn't set up yet." },
         { status: 500 },
       );
     }
 
     const openai = new OpenAI({ apiKey });
 
-    // 1. Parse & validate the incoming request body with Zod
+    // ── 1. Parse & validate the incoming body ───────────────────────────
     const body = await req.json().catch(() => null);
     const parsed = RequestSchema.safeParse(body);
 
@@ -93,55 +105,89 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: message }, { status: 400 });
     }
 
-    const userQuery = parsed.data.query.trim();
+    const userQuery = parsed.data.query; // already trimmed by Zod transform
 
-    // 2. Call the LLM — low temperature keeps answers deterministic
-    const completion = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
-      temperature: 0.1,
-      max_tokens: 400,
-      messages: [
-        { role: "system", content: SYSTEM_PROMPT },
-        { role: "user", content: userQuery },
-      ],
-    });
+    // ── 2. Call the LLM with a timeout ──────────────────────────────────
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), LLM_TIMEOUT_MS);
+
+    let completion: OpenAI.Chat.Completions.ChatCompletion;
+    try {
+      completion = await openai.chat.completions.create(
+        {
+          model: "gpt-4o-mini",
+          temperature: 0.1,
+          max_tokens: 400,
+          messages: [
+            { role: "system", content: SYSTEM_PROMPT },
+            { role: "user", content: userQuery },
+          ],
+        },
+        { signal: controller.signal },
+      );
+    } catch (err) {
+      // Distinguish timeout from other failures for a friendlier message
+      const isTimeout =
+        err instanceof Error && err.name === "AbortError";
+      console.error("[search] LLM call failed:", err);
+      return NextResponse.json(
+        {
+          error: isTimeout
+            ? "The AI took too long to respond. Please try a simpler query."
+            : "Could not reach the AI service right now. Please try again shortly.",
+        },
+        { status: 502 },
+      );
+    } finally {
+      clearTimeout(timer);
+    }
 
     const raw = completion.choices[0]?.message?.content?.trim() ?? "";
 
-    // 3. Parse JSON from LLM response
+    // ── 3. Parse JSON from LLM response ─────────────────────────────────
     let llmJson: unknown;
     try {
       llmJson = JSON.parse(raw);
     } catch {
       console.error("[search] LLM returned non-JSON:", raw);
       return NextResponse.json(
-        { error: "AI returned an invalid response. Please try again." },
+        { error: "The AI returned something unexpected. Please try rephrasing your query." },
         { status: 502 },
       );
     }
 
-    // 4. Validate strict schema — rejects any unknown / fabricated IDs
+    // ── 4. Validate strict schema — rejects fabricated IDs ──────────────
     const validated = AIResponseSchema.safeParse(llmJson);
 
     if (!validated.success) {
-      console.error("[search] Zod validation failed:", validated.error.flatten());
+      console.error(
+        "[search] Zod validation failed:",
+        validated.error.flatten(),
+      );
       return NextResponse.json(
-        { error: "AI response did not match the expected schema." },
+        { error: "The AI response didn't match our expected format. Please try again." },
         { status: 502 },
       );
     }
 
-    // 5. Post-processing: belt-and-suspenders filter on known IDs
+    // ── 5. Belt-and-suspenders: keep only known IDs ─────────────────────
     const safeMatches = validated.data.matches.filter((m) =>
       VALID_IDS.has(m.id),
     );
 
+    // Return matches (may be empty — that's a valid "no results" state)
     return NextResponse.json({ matches: safeMatches });
   } catch (err: unknown) {
-    // Catch-all — surface a safe message, log the full error server-side
+    // ── Catch-all — log everything, surface a safe message ──────────────
     console.error("[search] Unhandled error:", err);
-    const message =
-      err instanceof Error ? err.message : "Internal server error";
+
+    const isFetchError =
+      err instanceof TypeError && /fetch/i.test(err.message);
+
+    const message = isFetchError
+      ? "Unable to connect to the AI service. Please check your network."
+      : "Something unexpected went wrong. Please try again.";
+
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }

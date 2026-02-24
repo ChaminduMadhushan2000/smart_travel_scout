@@ -1,14 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import BackgroundOrbs from "@/components/BackgroundOrbs";
 import GlobeIcon from "@/components/GlobeIcon";
 import SearchForm from "@/components/SearchForm";
-import { travelPackages, type TravelPackage } from "@/lib/data";
+import { packageById, type TravelPackage } from "@/lib/data";
 
 // ---------------------------------------------------------------------------
-// Home — the single-page entry point.
-// Manages search state, calls /api/search, and renders matched results.
+// Types
 // ---------------------------------------------------------------------------
 
 interface SearchResult {
@@ -16,58 +15,134 @@ interface SearchResult {
   reason: string;
 }
 
+// ---------------------------------------------------------------------------
+// Home — the single-page entry point.
+// Owns every piece of search state and delegates rendering to sub-components.
+// ---------------------------------------------------------------------------
+
 export default function Home() {
+  // ── State ───────────────────────────────────────────────────────────────
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<SearchResult[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [hasSearched, setHasSearched] = useState(false);
+  const [hint, setHint] = useState<string | undefined>();
 
-  async function handleSearch(e: React.FormEvent) {
-    e.preventDefault();
-    const trimmed = query.trim();
-    if (!trimmed || loading) return;
+  // Abort controller ref — lets us cancel an in-flight request on re-submit
+  const abortRef = useRef<AbortController | null>(null);
 
-    setLoading(true);
-    setError(null);
+  // ── Helpers ─────────────────────────────────────────────────────────────
+
+  /** Reset to the initial state so the user can start fresh. */
+  const resetSearch = useCallback(() => {
+    setQuery("");
     setResults([]);
-    setHasSearched(true);
+    setError(null);
+    setHasSearched(false);
+    setHint(undefined);
+  }, []);
 
-    try {
-      const res = await fetch("/api/search", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query: trimmed }),
-      });
+  // ── Submit handler ──────────────────────────────────────────────────────
 
-      const data = await res.json();
+  const handleSearch = useCallback(
+    async (e: React.FormEvent) => {
+      e.preventDefault();
 
-      if (!res.ok) {
-        setError(data.error ?? "Something went wrong. Please try again.");
+      // — Guard: empty or whitespace-only query → show a helpful hint
+      const trimmed = query.trim();
+      if (!trimmed) {
+        setHint("Tell us what you're looking for — even a vague idea works!");
         return;
       }
 
-      const matches: SearchResult[] = (data.matches ?? [])
-        .map((m: { id: number; reason: string }) => {
-          const pkg = travelPackages.find((p) => p.id === m.id);
-          return pkg ? { package: pkg, reason: m.reason } : null;
-        })
-        .filter(Boolean) as SearchResult[];
+      // Clear any previous hint the moment the user submits something real
+      setHint(undefined);
 
-      setResults(matches);
-    } catch {
-      setError("Network error. Please check your connection and try again.");
-    } finally {
-      setLoading(false);
-    }
-  }
+      // Don't double-fire while a request is already in flight
+      if (loading) return;
+
+      // Cancel a previous in-flight request (race condition guard)
+      abortRef.current?.abort();
+      const controller = new AbortController();
+      abortRef.current = controller;
+
+      setLoading(true);
+      setError(null);
+      setResults([]);
+      setHasSearched(true);
+
+      try {
+        const res = await fetch("/api/search", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ query: trimmed }),
+          signal: controller.signal,
+        });
+
+        // If the user started a new search while this one was in-flight, bail
+        if (controller.signal.aborted) return;
+
+        // Try to parse the response body regardless of status — the API always
+        // returns JSON with either `matches` or `error`.
+        let data: Record<string, unknown>;
+        try {
+          data = await res.json();
+        } catch {
+          setError("Received an unreadable response from the server.");
+          return;
+        }
+
+        // Server returned an error message
+        if (!res.ok) {
+          setError(
+            (data.error as string) ??
+              "Something went wrong on our end. Please try again.",
+          );
+          return;
+        }
+
+        // Map returned IDs → local inventory. Unknown IDs are silently dropped.
+        const matches: SearchResult[] = [];
+        for (const m of (data.matches ?? []) as {
+          id: number;
+          reason: string;
+        }[]) {
+          const pkg = packageById.get(m.id);
+          if (pkg) matches.push({ package: pkg, reason: m.reason });
+        }
+
+        setResults(matches);
+      } catch (err) {
+        // Aborted by the user (new search started) — do nothing
+        if (err instanceof DOMException && err.name === "AbortError") return;
+
+        setError(
+          "Network error — please check your connection and try again.",
+        );
+      } finally {
+        setLoading(false);
+      }
+    },
+    [query, loading],
+  );
+
+  // ── Derived UI flags ────────────────────────────────────────────────────
+  // Keeps the JSX clean — one boolean per visual state.
+
+  const showSkeleton = loading;
+  const showError = !loading && !!error;
+  const showResults = !loading && !error && results.length > 0;
+  const showEmpty = hasSearched && !loading && !error && results.length === 0;
+
+  // ── Render ──────────────────────────────────────────────────────────────
 
   return (
     <div className="relative flex min-h-screen items-center justify-center bg-gradient-to-br from-[#0f0c29] via-[#302b63] to-[#24243e]">
       <BackgroundOrbs />
 
       <main className="relative z-10 mx-4 w-full max-w-2xl py-16">
-        {/* Frosted glass card */}
+        {/* ── Frosted glass card ────────────────────────────────── */}
         <div className="rounded-3xl border border-white/[0.08] bg-white/[0.05] p-8 shadow-2xl backdrop-blur-xl sm:p-12">
           {/* Header */}
           <header className="mb-10 flex flex-col items-center text-center">
@@ -85,12 +160,17 @@ export default function Home() {
             </p>
           </header>
 
-          {/* Search form */}
+          {/* Search form — passes hint down so the input can highlight */}
           <SearchForm
             query={query}
-            onChange={setQuery}
+            onChange={(v) => {
+              setQuery(v);
+              // Auto-clear the hint once the user starts typing again
+              if (hint && v.trim()) setHint(undefined);
+            }}
             onSubmit={handleSearch}
             loading={loading}
+            hint={hint}
           />
 
           {/* Trust footer */}
@@ -102,8 +182,8 @@ export default function Home() {
         {/* ── Results Section ─────────────────────────────────────── */}
 
         {/* Loading skeleton */}
-        {loading && (
-          <div className="mt-6 space-y-4">
+        {showSkeleton && (
+          <div className="mt-6 space-y-4" aria-busy="true" aria-live="polite">
             {[1, 2, 3].map((i) => (
               <div
                 key={i}
@@ -117,19 +197,52 @@ export default function Home() {
           </div>
         )}
 
-        {/* Error state */}
-        {error && !loading && (
-          <div className="mt-6 rounded-2xl border border-red-500/20 bg-red-500/[0.08] p-6 backdrop-blur-lg">
-            <p className="text-center text-sm text-red-300">{error}</p>
+        {/* Error state — friendly message + retry button */}
+        {showError && (
+          <div className="mt-6 rounded-2xl border border-red-500/20 bg-red-500/[0.08] p-6 text-center backdrop-blur-lg">
+            <p className="text-sm leading-relaxed text-red-300">{error}</p>
+
+            <button
+              type="button"
+              onClick={handleSearch as unknown as React.MouseEventHandler}
+              className="mt-4 inline-flex items-center gap-1.5 rounded-xl bg-white/[0.06] px-4 py-2 text-xs font-medium text-white/60 transition-colors hover:bg-white/[0.1] hover:text-white/80"
+            >
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                viewBox="0 0 16 16"
+                fill="currentColor"
+                className="h-3.5 w-3.5"
+                aria-hidden="true"
+              >
+                <path
+                  fillRule="evenodd"
+                  d="M13.836 2.477a.75.75 0 0 1 .75.75v3.182a.75.75 0 0 1-.75.75h-3.182a.75.75 0 0 1 0-1.5h1.37l-.84-.841a4.5 4.5 0 0 0-7.08.932.75.75 0 0 1-1.3-.75 6 6 0 0 1 9.44-1.242l.842.84V3.227a.75.75 0 0 1 .75-.75Zm-.911 7.5A.75.75 0 0 1 13.199 11a6 6 0 0 1-9.44 1.241l-.84-.84v1.371a.75.75 0 0 1-1.5 0V9.591a.75.75 0 0 1 .75-.75H5.35a.75.75 0 1 1 0 1.5H3.98l.841.841a4.5 4.5 0 0 0 7.08-.932.75.75 0 0 1 1.025-.273Z"
+                  clipRule="evenodd"
+                />
+              </svg>
+              Try again
+            </button>
           </div>
         )}
 
         {/* Results cards */}
-        {!loading && !error && results.length > 0 && (
-          <div className="mt-6 space-y-4">
-            <p className="text-center text-sm font-medium tracking-wide text-white/40">
-              {results.length} experience{results.length !== 1 && "s"} found
-            </p>
+        {showResults && (
+          <div className="mt-6 space-y-4" aria-live="polite">
+            <div className="flex items-center justify-between px-1">
+              <p className="text-sm font-medium tracking-wide text-white/40">
+                {results.length} experience
+                {results.length !== 1 && "s"} found
+              </p>
+
+              {/* New search action */}
+              <button
+                type="button"
+                onClick={resetSearch}
+                className="text-xs font-medium text-indigo-400/60 transition-colors hover:text-indigo-300"
+              >
+                New search
+              </button>
+            </div>
 
             {results.map(({ package: pkg, reason }) => (
               <div
@@ -198,13 +311,57 @@ export default function Home() {
           </div>
         )}
 
-        {/* Empty state — searched but nothing matched */}
-        {hasSearched && !loading && !error && results.length === 0 && (
-          <div className="mt-6 rounded-2xl border border-white/[0.06] bg-white/[0.04] p-8 backdrop-blur-lg">
-            <p className="text-center text-sm text-white/40">
-              No matching experiences found. Try describing your ideal trip
-              differently.
+        {/* Empty state — searched but nothing matched (conflicting / niche query) */}
+        {showEmpty && (
+          <div className="mt-6 rounded-2xl border border-white/[0.06] bg-white/[0.04] p-8 text-center backdrop-blur-lg">
+            {/* Shrug icon */}
+            <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-white/[0.05]">
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                viewBox="0 0 20 20"
+                fill="currentColor"
+                className="h-6 w-6 text-white/30"
+                aria-hidden="true"
+              >
+                <path
+                  fillRule="evenodd"
+                  d="M18 10a8 8 0 1 1-16 0 8 8 0 0 1 16 0Zm-8-5a.75.75 0 0 1 .75.75v4.5a.75.75 0 0 1-1.5 0v-4.5A.75.75 0 0 1 10 5Zm0 10a1 1 0 1 0 0-2 1 1 0 0 0 0 2Z"
+                  clipRule="evenodd"
+                />
+              </svg>
+            </div>
+
+            <p className="mb-2 text-sm font-medium text-white/50">
+              No matching experiences found
             </p>
+            <p className="mx-auto max-w-sm text-xs leading-relaxed text-white/30">
+              Your request may combine constraints that don&apos;t overlap in our
+              current inventory (e.g. &quot;cold beach&quot;). Try focusing on
+              one vibe — like &quot;relaxing beach trip&quot; or &quot;mountain
+              hiking adventure&quot; — and we&apos;ll do our best.
+            </p>
+
+            {/* Try again link */}
+            <button
+              type="button"
+              onClick={resetSearch}
+              className="mt-5 inline-flex items-center gap-1.5 text-xs font-medium text-indigo-400/60 transition-colors hover:text-indigo-300"
+            >
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                viewBox="0 0 16 16"
+                fill="currentColor"
+                className="h-3.5 w-3.5"
+                aria-hidden="true"
+              >
+                <path
+                  fillRule="evenodd"
+                  d="M13.836 2.477a.75.75 0 0 1 .75.75v3.182a.75.75 0 0 1-.75.75h-3.182a.75.75 0 0 1 0-1.5h1.37l-.84-.841a4.5 4.5 0 0 0-7.08.932.75.75 0 0 1-1.3-.75 6 6 0 0 1 9.44-1.242l.842.84V3.227a.75.75 0 0 1 .75-.75Zm-.911 7.5A.75.75 0 0 1 13.199 11a6 6 0 0 1-9.44 1.241l-.84-.84v1.371a.75.75 0 0 1-1.5 0V9.591a.75.75 0 0 1 .75-.75H5.35a.75.75 0 1 1 0 1.5H3.98l.841.841a4.5 4.5 0 0 0 7.08-.932.75.75 0 0 1 1.025-.273Z"
+                  clipRule="evenodd"
+                />
+              </svg>
+              Start a new search
+            </button>
           </div>
         )}
       </main>
