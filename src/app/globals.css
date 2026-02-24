@@ -5,7 +5,11 @@
   --font-mono: var(--font-geist-mono);
 }
 
-* {
+/* ── Reset ────────────────────────────────────────────────────────────── */
+
+*,
+*::before,
+*::after {
   margin: 0;
   padding: 0;
   box-sizing: border-box;
@@ -18,4 +22,18 @@ body {
     Roboto, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+/* ── Selection colour for brand consistency ───────────────────────────── */
+
+::selection {
+  background-color: rgba(99, 102, 241, 0.35);
+  color: #fff;
+}
+
+/* ── Smooth focus for keyboard nav without affecting mouse users ──────── */
+
+:focus-visible {
+  outline: 2px solid rgba(99, 102, 241, 0.6);
+  outline-offset: 2px;
 }
