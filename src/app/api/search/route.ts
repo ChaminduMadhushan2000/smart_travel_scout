@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import OpenAI from "openai";
+import { GoogleGenerativeAI } from '@google/generative-ai';
 import { z } from "zod";
 import { travelPackages, VALID_IDS } from "@/lib/data";
 
@@ -85,7 +85,7 @@ Respond with ONLY valid JSON — no markdown, no code fences, no extra text:
 export async function POST(req: NextRequest) {
   try {
     // ── 0. Ensure API key is available at runtime ────────────────────────
-    const apiKey = process.env.OPENAI_API_KEY;
+    const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) {
       return NextResponse.json(
         { error: "Server configuration error — the AI service isn't set up yet." },
@@ -93,7 +93,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const openai = new OpenAI({ apiKey });
+    const genAI = new GoogleGenerativeAI(apiKey);
 
     // ── 1. Parse & validate the incoming body ───────────────────────────
     const body = await req.json().catch(() => null);
@@ -111,20 +111,24 @@ export async function POST(req: NextRequest) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), LLM_TIMEOUT_MS);
 
-    let completion: OpenAI.Chat.Completions.ChatCompletion;
+    let responseText = "";
     try {
-      completion = await openai.chat.completions.create(
-        {
-          model: "gpt-4o-mini",
-          temperature: 0.1,
-          max_tokens: 400,
-          messages: [
-            { role: "system", content: SYSTEM_PROMPT },
-            { role: "user", content: userQuery },
-          ],
-        },
-        { signal: controller.signal },
-      );
+      const model = genAI.getGenerativeModel({ 
+      model: "gemini-2.5-flash",
+      systemInstruction: SYSTEM_PROMPT, // Move the prompt here
+      generationConfig: { 
+          responseMimeType: "application/json",
+          temperature: 0.1, 
+      } 
+    });
+    
+    const result = await model.generateContent(
+      userQuery, 
+      { signal: controller.signal } as any
+    );
+      
+      responseText = result.response.text();
+      
     } catch (err) {
       // Distinguish timeout from other failures for a friendlier message
       const isTimeout =
@@ -142,14 +146,12 @@ export async function POST(req: NextRequest) {
       clearTimeout(timer);
     }
 
-    const raw = completion.choices[0]?.message?.content?.trim() ?? "";
-
     // ── 3. Parse JSON from LLM response ─────────────────────────────────
     let llmJson: unknown;
     try {
-      llmJson = JSON.parse(raw);
+      llmJson = JSON.parse(responseText);
     } catch {
-      console.error("[search] LLM returned non-JSON:", raw);
+      console.error("[search] LLM returned non-JSON:", responseText);
       return NextResponse.json(
         { error: "The AI returned something unexpected. Please try rephrasing your query." },
         { status: 502 },
