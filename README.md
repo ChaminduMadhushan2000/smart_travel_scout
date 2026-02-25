@@ -13,23 +13,28 @@ AI-powered travel experience finder for Sri Lanka. Type a natural-language reque
 ## How to Run Locally
 
 1. Clone the repository
+
    ```bash
    git clone <your-repo-url>
    cd smart-travel-scout
    ```
 
 2. Install dependencies
+
    ```bash
    npm install
    ```
 
 3. Set up environment variables
+
    ```bash
    cp .env.example .env.local
    ```
+
    Then open `.env.local` and add your Gemini API key.
 
 4. Run the development server
+
    ```bash
    npm run dev
    ```
@@ -38,8 +43,8 @@ AI-powered travel experience finder for Sri Lanka. Type a natural-language reque
 
 ## Environment Variables
 
-| Variable | Description |
-|---|---|
+| Variable         | Description                                                 |
+| ---------------- | ----------------------------------------------------------- |
 | `GEMINI_API_KEY` | Your Google Gemini API key from https://aistudio.google.com |
 
 ## Live Demo

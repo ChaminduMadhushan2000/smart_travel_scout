@@ -26,7 +26,7 @@ function isRateLimited(ip: string): boolean {
     return false;
   }
 
-  if (entry.count >= maxRequests) return true;
+  if (entry.count >= maxRequests) return true; 
 
   entry.count++;
   return false;
