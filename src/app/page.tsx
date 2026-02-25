@@ -215,7 +215,7 @@ export default function Home() {
           collection.
         </p>
 
-        {/* Search form */}
+        {/* Search form  */}
         <SearchForm
           query={query}
           onChange={(v) => {
