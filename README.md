@@ -15,7 +15,7 @@ AI-powered travel experience finder for Sri Lanka. Type a natural-language reque
 1. Clone the repository
 
    ```bash
-   git clone <your-repo-url>
+   git clone https://github.com/ChaminduMadhushan2000/smart_travel_scout.git
    cd smart-travel-scout
    ```
 
@@ -49,19 +49,30 @@ AI-powered travel experience finder for Sri Lanka. Type a natural-language reque
 
 ## Live Demo
 
-[Deployed on Vercel -> ADD YOUR URL HERE]
+https://smart-travel-scout-theta.vercel.app/
 
 ---
 
-## Submission -- Passion Check
+## Answer Submission
 
 ### 1. The "Under the Hood" Moment
 
-> Write a specific real technical hurdle you faced and how you debugged it.
->
-> **Example structure:** "When I first connected the Gemini API, I was calling it client-side and hitting CORS errors. I debugged this by checking the Network tab in DevTools which showed a 403 response. I moved the call to a Next.js API route at `/app/api/search/route.ts` which resolved it because the key was now server-side only."
+I originally built the API route using OpenAI's gpt-4o-mini model, but later
+switched to Google's Gemini API. When I made the switch, the Gemini model kept
+returning its JSON wrapped in markdown code fences (`json ... `) even though
+my system prompt said "Respond with ONLY valid JSON — no markdown, no code fences."
 
-_[Replace this block with your own real experience.]_
+This caused JSON.parse() to throw on every response, so users just saw
+"The AI returned something unexpected."
+
+**How I debugged it:**
+I added console.error logging of the raw responseText and saw the code fences
+in the server terminal. My first fix was regex stripping, but that felt fragile.
+
+**The solution:**
+I discovered Gemini's generationConfig accepts `responseMimeType: "application/json"`,
+which forces structured JSON natively — no code fences. One config option fixed
+everything, and I removed the regex workaround.
 
 ### 2. The Scalability Thought
 
@@ -76,6 +87,16 @@ If this app had 50,000 travel packages instead of 5, passing the full inventory 
 
 ### 3. The AI Reflection
 
-> Name the specific AI tool you used (GitHub Copilot, ChatGPT, Cursor, etc.), then describe **one specific bad or buggy suggestion** it gave you and how you caught and fixed it. Be concrete about what the bug was.
+I used GitHub Copilot throughout. One buggy suggestion: Copilot suggested passing
+an AbortSignal to `model.generateContent(userQuery, { signal: controller.signal })`,
+but Gemini's SDK doesn't accept a signal options object — the signal was silently ignored.
 
-_[Replace this block with your own real experience.]_
+**How I caught it:**
+I tested with a deliberately slow query and noticed the request hung past my 15-second
+limit. The timeout logic wasn't working.
+
+**The fix:**
+I replaced the approach with `Promise.race()` — racing generateContent against a
+setTimeout rejection. This gave proper timeouts without casting to `as any`.
+
+**Lesson:** Don't blindly trust AI suggestions; test thoroughly and value type safety.

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import GlobeIcon from "@/components/GlobeIcon";
 import SearchForm from "@/components/SearchForm";
 import BackgroundOrbs from "@/components/BackgroundOrbs";
@@ -40,6 +40,15 @@ export default function Home() {
   const [hasSearched, setHasSearched] = useState(false);
   const [hint, setHint] = useState<string | undefined>();
   const [apiHint, setApiHint] = useState<string | null>(null);
+
+  // Greeting is derived from the clock, which differs between server and
+  // client. We initialise with a static fallback so the server-rendered HTML
+  // matches the first client render, then update once in useEffect.
+  const [greeting, setGreeting] = useState("Welcome");
+
+  useEffect(() => {
+    setGreeting(getGreeting());
+  }, []);
 
   const abortRef = useRef<AbortController | null>(null);
 
@@ -193,7 +202,7 @@ export default function Home() {
 
         {/* Headline */}
         <h1 className="travel-headline">
-          {getGreeting()},
+          {greeting},
           <br />
           discover your perfect getaway.
         </h1>
