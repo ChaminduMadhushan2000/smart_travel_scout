@@ -1,7 +1,3 @@
-// ---------------------------------------------------------------------------
-// SearchInput — search field with left icon, focus ring, clear button.
-// ---------------------------------------------------------------------------
-
 const MAX_QUERY_LENGTH = 500;
 
 interface SearchInputProps {
@@ -51,7 +47,6 @@ export default function SearchInput({
             "inset 0 1px 2px rgba(15, 23, 42, 0.04)";
         }}
       >
-        {/* Search icon */}
         <div
           style={{
             position: "absolute",
@@ -106,7 +101,6 @@ export default function SearchInput({
           }}
         />
 
-        {/* Clear button */}
         {value && !disabled && (
           <button
             type="button"
@@ -140,7 +134,6 @@ export default function SearchInput({
         )}
       </div>
 
-      {/* Hint + character count */}
       {(hint || nearLimit) && (
         <div
           style={{

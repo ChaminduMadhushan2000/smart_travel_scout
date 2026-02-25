@@ -1,12 +1,6 @@
-// ---------------------------------------------------------------------------
-// BackgroundOrbs — radial-gradient blobs with slow drift animation.
-// Exact match of the reference weather-app’s .blob-1, .blob-2, .blob-3.
-// ---------------------------------------------------------------------------
-
 export default function BackgroundOrbs() {
   return (
     <>
-      {/* Blob 1 — purple-blue top-left */}
       <div
         style={{
           position: "fixed",
@@ -24,7 +18,6 @@ export default function BackgroundOrbs() {
           zIndex: 0,
         }}
       />
-      {/* Blob 2 — pink bottom-right */}
       <div
         style={{
           position: "fixed",
@@ -42,7 +35,6 @@ export default function BackgroundOrbs() {
           zIndex: 0,
         }}
       />
-      {/* Blob 3 — cyan center */}
       <div
         style={{
           position: "fixed",

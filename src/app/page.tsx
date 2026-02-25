@@ -7,18 +7,10 @@ import BackgroundOrbs from "@/components/BackgroundOrbs";
 import { packageById, type TravelPackage } from "@/lib/data";
 import type { SearchResponse, SearchErrorResponse } from "./api/search/route";
 
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
-
 interface SearchResult {
   package: TravelPackage;
   reason: string;
 }
-
-// ---------------------------------------------------------------------------
-// Greeting helper — time-aware, like the reference design.
-// ---------------------------------------------------------------------------
 
 function getGreeting(): string {
   const h = new Date().getHours();
@@ -27,12 +19,7 @@ function getGreeting(): string {
   return "Good evening";
 }
 
-// ---------------------------------------------------------------------------
-// Home — premium glassmorphism single-page entry point.
-// ---------------------------------------------------------------------------
-
 export default function Home() {
-  // ── State ───────────────────────────────────────────────────────────────
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<SearchResult[]>([]);
   const [loading, setLoading] = useState(false);
@@ -41,9 +28,6 @@ export default function Home() {
   const [hint, setHint] = useState<string | undefined>();
   const [apiHint, setApiHint] = useState<string | null>(null);
 
-  // Greeting is derived from the clock, which differs between server and
-  // client. We initialise with a static fallback so the server-rendered HTML
-  // matches the first client render, then update once in useEffect.
   const [greeting, setGreeting] = useState("Welcome");
 
   useEffect(() => {
@@ -51,8 +35,6 @@ export default function Home() {
   }, []);
 
   const abortRef = useRef<AbortController | null>(null);
-
-  // ── Helpers ─────────────────────────────────────────────────────────────
 
   const resetSearch = useCallback(() => {
     setQuery("");
@@ -62,8 +44,6 @@ export default function Home() {
     setHint(undefined);
     setApiHint(null);
   }, []);
-
-  // ── Core search logic (reused by form submit and chip clicks) ───────────
 
   const performSearch = useCallback(
     async (trimmedQuery: string) => {
@@ -127,8 +107,6 @@ export default function Home() {
     [loading],
   );
 
-  // ── Submit handler ──────────────────────────────────────────────────────
-
   const handleSearch = useCallback(
     (e: React.FormEvent) => {
       e.preventDefault();
@@ -145,8 +123,6 @@ export default function Home() {
     [query, performSearch],
   );
 
-  // ── Chip click — sets the query text AND triggers search immediately ────
-
   const handleChipSearch = useCallback(
     (chipQuery: string) => {
       setQuery(chipQuery);
@@ -156,15 +132,12 @@ export default function Home() {
     [performSearch],
   );
 
-  // ── Derived flags ───────────────────────────────────────────────────────
-
   const showSkeleton = loading;
   const showError = !loading && !!error;
   const showResults = !loading && !error && results.length > 0;
   const showEmpty = hasSearched && !loading && !error && results.length === 0;
   const showPlaceholder = !hasSearched && !loading;
 
-  // ── Render ──────────────────────────────────────────────────────────────
 
   return (
     <div
@@ -180,7 +153,6 @@ export default function Home() {
     >
       <BackgroundOrbs />
       <main className="travel-card" style={{ position: "relative", zIndex: 1 }}>
-        {/* Badge */}
         <div
           style={{
             display: "inline-flex",
@@ -200,14 +172,12 @@ export default function Home() {
           AI Travel Assistant
         </div>
 
-        {/* Headline */}
         <h1 className="travel-headline">
           {greeting},
           <br />
           discover your perfect getaway.
         </h1>
 
-        {/* Subtitle */}
         <p
           style={{
             fontSize: 14,
@@ -224,7 +194,6 @@ export default function Home() {
           collection.
         </p>
 
-        {/* Search form  */}
         <SearchForm
           query={query}
           onChange={(v) => {
@@ -237,9 +206,6 @@ export default function Home() {
           hint={hint}
         />
 
-        {/* ── Results area ──────────────────────────────────────── */}
-
-        {/* Placeholder — before any search */}
         {showPlaceholder && (
           <div
             style={{
@@ -262,7 +228,6 @@ export default function Home() {
           </div>
         )}
 
-        {/* Loading skeleton */}
         {showSkeleton && (
           <div
             className="animate-pulse"
@@ -302,7 +267,6 @@ export default function Home() {
           </div>
         )}
 
-        {/* Error state */}
         {showError && (
           <div
             className="animate-shake"
@@ -353,7 +317,6 @@ export default function Home() {
           </div>
         )}
 
-        {/* Results cards */}
         {showResults && (
           <div style={{ marginTop: 20 }} aria-live="polite">
             <div
@@ -397,7 +360,6 @@ export default function Home() {
                   animation: `fadeSlideIn 0.4s ${idx * 0.08}s both`,
                 }}
               >
-                {/* Title & location/price */}
                 <div
                   style={{
                     display: "flex",
@@ -445,7 +407,6 @@ export default function Home() {
                   </div>
                 </div>
 
-                {/* Tags */}
                 <div
                   style={{
                     display: "flex",
@@ -471,7 +432,6 @@ export default function Home() {
                   ))}
                 </div>
 
-                {/* Why this matches */}
                 <p
                   style={{
                     marginTop: 10,
@@ -491,7 +451,6 @@ export default function Home() {
           </div>
         )}
 
-        {/* Empty state — no matches */}
         {showEmpty && (
           <div
             style={{
@@ -589,7 +548,6 @@ export default function Home() {
           </div>
         )}
 
-        {/* Footer */}
         <p
           style={{
             fontSize: 12,

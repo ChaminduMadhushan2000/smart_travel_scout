@@ -28,7 +28,7 @@ AI-powered travel experience finder for Sri Lanka. Type a natural-language reque
 3. Set up environment variables
 
    ```bash
-   cp .env.example .env.local
+   cp .env.local
    ```
 
    Then open `.env.local` and add your Gemini API key.
@@ -79,24 +79,24 @@ everything, and I removed the regex workaround.
 If this app had 50,000 travel packages instead of 5, passing the full inventory to the LLM would be too expensive and imprecise. Here is how the approach would change:
 
 - **Pre-computed embeddings** -- Generate an embedding vector for every inventory item using its title, tags, and location as input text.
-- **Vector search / top-k retrieval** -- Store embeddings in a vector database (e.g. Pinecone, Supabase pgvector). At query time, embed the user's query and perform a top-k similarity search to retrieve the 10-20 most relevant items.
-- **Pass only candidates to LLM** -- Send only these top-k items to the LLM instead of the full 50,000-item dataset, dramatically reducing token usage and cost.
-- **Cache identical prompts** -- Cache results for identical or near-identical queries so repeated searches skip the LLM entirely.
+- **Vector search / top-k retrieval** -- Store embeddings in a vector database. At query time, embed the user's query and perform a top-k similarity search to retrieve the 10-20 most relevant items.
+- **Pass only candidates to LLM** -- Send only these top-k items to the LLM instead of the full 50,000 item dataset, dramatically reducing token usage and cost.
+- **Cache identical prompts** -- Cache results for identical or near identical queries so repeated searches skip the LLM entirely.
 - **Short system prompts** -- Keep prompts concise to minimize cost per request.
-- **Cost controls / temperature near 0** -- Use `temperature: 0` for deterministic output and set token budgets to cap per-request spend.
+- **Cost controls / temperature near 0** -- Use `temperature: 0` for deterministic output and set token budgets to cap per request spend.
 
 ### 3. The AI Reflection
 
-I used GitHub Copilot throughout. One buggy suggestion: Copilot suggested passing
+I used Copilot throughout. One buggy suggestion: Copilot suggested passing
 an AbortSignal to `model.generateContent(userQuery, { signal: controller.signal })`,
 but Gemini's SDK doesn't accept a signal options object — the signal was silently ignored.
 
 **How I caught it:**
-I tested with a deliberately slow query and noticed the request hung past my 15-second
+I tested with a deliberately slow query and noticed the request hung past my 15 second
 limit. The timeout logic wasn't working.
 
 **The fix:**
 I replaced the approach with `Promise.race()` — racing generateContent against a
 setTimeout rejection. This gave proper timeouts without casting to `as any`.
 
-**Lesson:** Don't blindly trust AI suggestions; test thoroughly and value type safety.
+**Lesson:** Don't blindly trust AI suggestions, test thoroughly and value type safety.

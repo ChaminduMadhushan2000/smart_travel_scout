@@ -1,9 +1,3 @@
-// ---------------------------------------------------------------------------
-// TravelPackage — the core domain type for every inventory item.
-// This is the single source of truth; the API route and UI both import it.
-// ---------------------------------------------------------------------------
-
-/** Allowed tag values across the inventory — keeps tag usage type-safe. */
 export type PackageTag =
   | "cold"
   | "nature"
@@ -21,23 +15,12 @@ export type PackageTag =
   | "view";
 
 export interface TravelPackage {
-  /** Unique numeric identifier (1-based). */
   readonly id: number;
-  /** Human-readable experience title. */
   readonly title: string;
-  /** Destination / area name. */
   readonly location: string;
-  /** Price in USD. */
   readonly price: number;
-  /** Descriptive tags used for matching. */
   readonly tags: PackageTag[];
 }
-
-// ---------------------------------------------------------------------------
-// Inventory — the ONLY set of travel experiences the app may reference.
-// The LLM system prompt and Zod validation both derive from this array,
-// so adding / removing items here is the sole change needed.
-// ---------------------------------------------------------------------------
 
 export const travelPackages: readonly TravelPackage[] = [
   { id: 1, title: "High-Altitude Tea Trails", location: "Nuwara Eliya", price: 120, tags: ["cold", "nature", "hiking"] },
@@ -47,13 +30,8 @@ export const travelPackages: readonly TravelPackage[] = [
   { id: 5, title: "Ancient City Exploration", location: "Sigiriya", price: 110, tags: ["history", "climbing", "view"] },
 ] as const;
 
-/** Pre-computed set of valid IDs — shared by the API route for O(1) lookups. */
 export const VALID_IDS = new Set(travelPackages.map((p) => p.id));
 
-/**
- * O(1) lookup map: id → TravelPackage.
- * Prefer this over `travelPackages.find()` on the client when mapping results.
- */
 export const packageById = new Map(
   travelPackages.map((p) => [p.id, p]),
 );

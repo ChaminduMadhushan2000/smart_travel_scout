@@ -3,10 +3,6 @@
 import SearchInput from "@/components/SearchInput";
 import SubmitButton from "@/components/SubmitButton";
 
-// ---------------------------------------------------------------------------
-// SearchForm — inline search row + quick-pick filter tags.
-// ---------------------------------------------------------------------------
-
 const QUICK_FILTERS = [
   "Beaches",
   "Nature",
@@ -34,7 +30,6 @@ export default function SearchForm({
 }: SearchFormProps) {
   return (
     <div>
-      {/* Search row — input + button side by side */}
       <form onSubmit={onSubmit} className="search-row" style={{ display: "flex", gap: 10 }}>
         <SearchInput
           value={query}
@@ -45,7 +40,6 @@ export default function SearchForm({
         <SubmitButton loading={loading} disabled={!query.trim()} />
       </form>
 
-      {/* Quick filter tags */}
       <div
         style={{
           display: "flex",

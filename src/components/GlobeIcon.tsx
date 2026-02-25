@@ -1,7 +1,3 @@
-// ---------------------------------------------------------------------------
-// GlobeIcon — floating globe emoji for the empty-state placeholder.
-// ---------------------------------------------------------------------------
-
 export default function GlobeIcon() {
   return (
     <span

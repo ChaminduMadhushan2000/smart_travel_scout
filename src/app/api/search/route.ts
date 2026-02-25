@@ -3,20 +3,14 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
 import { z } from "zod";
 import { travelPackages, VALID_IDS } from "@/lib/data";
 
-// ---------------------------------------------------------------------------
-// Constants — tune behaviour in one place.
-// ---------------------------------------------------------------------------
 const MAX_QUERY_LENGTH = 500;
-const LLM_TIMEOUT_MS = 15_000; // 15 s — generous, but prevents hanging forever
+const LLM_TIMEOUT_MS = 15_000;
 
-// ---------------------------------------------------------------------------
-// Rate limiter — simple in-memory, 10 requests per IP per 60-second window.
-// ---------------------------------------------------------------------------
 const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
 
 function isRateLimited(ip: string): boolean {
   const now = Date.now();
-  const windowMs = 60_000; // 1 minute
+  const windowMs = 60_000;
   const maxRequests = 10;
 
   const entry = rateLimitMap.get(ip);
@@ -26,16 +20,12 @@ function isRateLimited(ip: string): boolean {
     return false;
   }
 
-  if (entry.count >= maxRequests) return true; 
+  if (entry.count >= maxRequests) return true;
 
   entry.count++;
   return false;
 }
 
-// ---------------------------------------------------------------------------
-// Request schema — validates the incoming POST body before we touch the LLM.
-// A `.transform(trim)` strips whitespace so "   " is caught by `.min(1)`.
-// ---------------------------------------------------------------------------
 const RequestSchema = z.object({
   query: z
     .string()
@@ -48,10 +38,6 @@ const RequestSchema = z.object({
     ),
 });
 
-// ---------------------------------------------------------------------------
-// Response schemas — the LLM must return exactly this shape.
-// The `id` refine ensures no fabricated IDs slip through.
-// ---------------------------------------------------------------------------
 const MatchSchema = z.object({
   id: z
     .number()
@@ -73,30 +59,19 @@ const AIResponseSchema = z.object({
 
 export type AIResponse = z.infer<typeof AIResponseSchema>;
 
-// ---------------------------------------------------------------------------
-// Typed interfaces for API request / response (used by client & server).
-// ---------------------------------------------------------------------------
-
-/** Shape of the POST body sent by the frontend. */
 export type SearchRequest = {
   query: string;
 };
 
-/** Successful API response containing matched inventory items. */
 export type SearchResponse = {
   matches: Array<{ id: number; reason: string }>;
   hint?: string;
 };
 
-/** Error API response with a user-facing message. */
 export type SearchErrorResponse = {
   error: string;
 };
 
-// ---------------------------------------------------------------------------
-// System prompt — strictly grounds the model to our inventory with a
-// scoring rubric so the LLM ranks deterministically.
-// ---------------------------------------------------------------------------
 const SYSTEM_PROMPT = `You are a travel-matching assistant. Your ONLY job is to match the user's natural-language travel request to items from the INVENTORY below.
 
 INVENTORY (JSON):
@@ -122,11 +97,7 @@ Respond with ONLY valid JSON — no markdown, no code fences, no extra text:
   ]
 }`;
 
-// ---------------------------------------------------------------------------
-// POST /api/search
-// ---------------------------------------------------------------------------
 export async function POST(req: NextRequest) {
-  // ── Rate-limit check ────────────────────────────────────────────────
   const ip = req.headers.get("x-forwarded-for") ?? "unknown";
   if (isRateLimited(ip)) {
     return NextResponse.json(
@@ -136,7 +107,6 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    // ── 0. Ensure API key is available at runtime ────────────────────────
     const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) {
       return NextResponse.json(
@@ -147,7 +117,6 @@ export async function POST(req: NextRequest) {
 
     const genAI = new GoogleGenerativeAI(apiKey);
 
-    // ── 1. Parse & validate the incoming body ───────────────────────────
     const body = await req.json().catch(() => null);
     const parsed = RequestSchema.safeParse(body);
 
@@ -157,9 +126,8 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: message }, { status: 400 });
     }
 
-    const userQuery = parsed.data.query; // already trimmed by Zod transform
+    const userQuery = parsed.data.query;
 
-    // ── 2. Call the LLM with a timeout via Promise.race ─────────────────
     let responseText = "";
     let timeoutId: ReturnType<typeof setTimeout> | undefined;
     try {
@@ -184,7 +152,6 @@ export async function POST(req: NextRequest) {
       const result = await Promise.race([resultPromise, timeoutPromise]);
       responseText = result.response.text();
     } catch (err) {
-      // Distinguish timeout from other failures for a friendlier message
       const isTimeout =
         err instanceof Error && err.name === "AbortError";
       console.error("[search] LLM call failed:", err);
@@ -200,7 +167,6 @@ export async function POST(req: NextRequest) {
       if (timeoutId) clearTimeout(timeoutId);
     }
 
-    // ── 3. Parse JSON from LLM response ─────────────────────────────────
     let llmJson: unknown;
     try {
       llmJson = JSON.parse(responseText);
@@ -212,7 +178,6 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // ── 4. Validate strict schema — rejects fabricated IDs ──────────────
     const validated = AIResponseSchema.safeParse(llmJson);
 
     if (!validated.success) {
@@ -226,14 +191,11 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // ── 5. Belt-and-suspenders: keep only known IDs ─────────────────────
     const safeMatches = validated.data.matches.filter((m) =>
       VALID_IDS.has(m.id),
     );
 
-    // ── 6. Edge-case hints for specific empty-result scenarios ──────────
     if (safeMatches.length === 0) {
-      // Budget outlier: user's stated budget is below our cheapest package
       const budgetMatch = userQuery.match(/under\s*\$?(\d+)/i);
       if (budgetMatch) {
         const budget = parseInt(budgetMatch[1], 10);
@@ -246,7 +208,6 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      // Conflicting constraints: query mixes opposing tag families
       const conflictPairs: [string[], string[]][] = [
         [["beach", "surf", "coast", "ocean"], ["cold", "mountain", "snow", "highland"]],
         [["surfing", "diving", "snorkel"], ["climbing", "hiking", "trek"]],
@@ -264,10 +225,8 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Return matches (may be empty — that's a valid "no results" state)
     return NextResponse.json({ matches: safeMatches });
   } catch (err: unknown) {
-    // ── Catch-all — log everything, surface a safe message ──────────────
     console.error("[search] Unhandled error:", err);
 
     const isFetchError =

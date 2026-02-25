@@ -1,7 +1,3 @@
-// ---------------------------------------------------------------------------
-// SubmitButton — purple CTA with spinner on loading.
-// ---------------------------------------------------------------------------
-
 interface SubmitButtonProps {
   loading?: boolean;
   disabled?: boolean;
