@@ -15,7 +15,7 @@ AI-powered travel experience finder for Sri Lanka. Type a natural-language reque
 1. Clone the repository
 
    ```bash
-   git clone <your-repo-url>
+   git clone (https://github.com/ChaminduMadhushan2000/smart_travel_scout.git)
    cd smart-travel-scout
    ```
 
