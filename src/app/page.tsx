@@ -5,6 +5,7 @@ import GlobeIcon from "@/components/GlobeIcon";
 import SearchForm from "@/components/SearchForm";
 import BackgroundOrbs from "@/components/BackgroundOrbs";
 import { packageById, type TravelPackage } from "@/lib/data";
+import type { SearchResponse, SearchErrorResponse } from "./api/search/route";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -38,6 +39,7 @@ export default function Home() {
   const [error, setError] = useState<string | null>(null);
   const [hasSearched, setHasSearched] = useState(false);
   const [hint, setHint] = useState<string | undefined>();
+  const [apiHint, setApiHint] = useState<string | null>(null);
 
   const abortRef = useRef<AbortController | null>(null);
 
@@ -49,21 +51,13 @@ export default function Home() {
     setError(null);
     setHasSearched(false);
     setHint(undefined);
+    setApiHint(null);
   }, []);
 
-  // ── Submit handler ──────────────────────────────────────────────────────
+  // ── Core search logic (reused by form submit and chip clicks) ───────────
 
-  const handleSearch = useCallback(
-    async (e: React.FormEvent) => {
-      e.preventDefault();
-
-      const trimmed = query.trim();
-      if (!trimmed) {
-        setHint("Tell us what you're looking for — even a vague idea works!");
-        return;
-      }
-
-      setHint(undefined);
+  const performSearch = useCallback(
+    async (trimmedQuery: string) => {
       if (loading) return;
 
       abortRef.current?.abort();
@@ -73,19 +67,20 @@ export default function Home() {
       setLoading(true);
       setError(null);
       setResults([]);
+      setApiHint(null);
       setHasSearched(true);
 
       try {
         const res = await fetch("/api/search", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ query: trimmed }),
+          body: JSON.stringify({ query: trimmedQuery }),
           signal: controller.signal,
         });
 
         if (controller.signal.aborted) return;
 
-        let data: Record<string, unknown>;
+        let data: SearchResponse | SearchErrorResponse;
         try {
           data = await res.json();
         } catch {
@@ -95,21 +90,21 @@ export default function Home() {
 
         if (!res.ok) {
           setError(
-            (data.error as string) ??
-              "Something went wrong on our end. Please try again.",
+            "error" in data
+              ? data.error
+              : "Something went wrong on our end. Please try again.",
           );
           return;
         }
 
+        const body = data as SearchResponse;
         const matches: SearchResult[] = [];
-        for (const m of (data.matches ?? []) as {
-          id: number;
-          reason: string;
-        }[]) {
+        for (const m of body.matches) {
           const pkg = packageById.get(m.id);
           if (pkg) matches.push({ package: pkg, reason: m.reason });
         }
 
+        if (body.hint) setApiHint(body.hint);
         setResults(matches);
       } catch (err) {
         if (err instanceof DOMException && err.name === "AbortError") return;
@@ -120,7 +115,36 @@ export default function Home() {
         setLoading(false);
       }
     },
-    [query, loading],
+    [loading],
+  );
+
+  // ── Submit handler ──────────────────────────────────────────────────────
+
+  const handleSearch = useCallback(
+    (e: React.FormEvent) => {
+      e.preventDefault();
+
+      const trimmed = query.trim();
+      if (!trimmed) {
+        setHint("Tell us what you're looking for — even a vague idea works!");
+        return;
+      }
+
+      setHint(undefined);
+      performSearch(trimmed);
+    },
+    [query, performSearch],
+  );
+
+  // ── Chip click — sets the query text AND triggers search immediately ────
+
+  const handleChipSearch = useCallback(
+    (chipQuery: string) => {
+      setQuery(chipQuery);
+      setHint(undefined);
+      performSearch(chipQuery);
+    },
+    [performSearch],
   );
 
   // ── Derived flags ───────────────────────────────────────────────────────
@@ -150,7 +174,9 @@ export default function Home() {
         {/* Badge */}
         <div
           style={{
-            display: "inline-block",
+            display: "inline-flex",
+            alignSelf: "flex-start",      
+            width: "fit-content", 
             background: "rgba(99, 102, 241, 0.1)",
             color: "#6366f1",
             borderRadius: 999,
@@ -197,6 +223,7 @@ export default function Home() {
             if (hint && v.trim()) setHint(undefined);
           }}
           onSubmit={handleSearch}
+          onChipSearch={handleChipSearch}
           loading={loading}
           hint={hint}
         />
@@ -513,8 +540,8 @@ export default function Home() {
                 margin: "0 auto",
               }}
             >
-              Your request may combine constraints that don&apos;t overlap. Try
-              focusing on one vibe.
+              {apiHint ??
+                "Your request may combine constraints that don\u2019t overlap. Try focusing on one vibe."}
             </p>
 
             <button

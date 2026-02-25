@@ -1,36 +1,76 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Smart Travel Scout
 
-## Getting Started
+AI-powered travel experience finder for Sri Lanka. Type a natural-language request and get matched experiences from a curated inventory using Gemini AI.
 
-First, run the development server:
+## Tech Stack
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+- Next.js 16 (App Router)
+- TypeScript
+- Google Gemini AI API
+- Zod schema validation
+- Tailwind CSS
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## How to Run Locally
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+1. Clone the repository
+   ```bash
+   git clone <your-repo-url>
+   cd smart-travel-scout
+   ```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+2. Install dependencies
+   ```bash
+   npm install
+   ```
 
-## Learn More
+3. Set up environment variables
+   ```bash
+   cp .env.example .env.local
+   ```
+   Then open `.env.local` and add your Gemini API key.
 
-To learn more about Next.js, take a look at the following resources:
+4. Run the development server
+   ```bash
+   npm run dev
+   ```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+5. Open [http://localhost:3000](http://localhost:3000)
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Environment Variables
 
-## Deploy on Vercel
+| Variable | Description |
+|---|---|
+| `GEMINI_API_KEY` | Your Google Gemini API key from https://aistudio.google.com |
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## Live Demo
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+[Deployed on Vercel -> ADD YOUR URL HERE]
+
+---
+
+## Submission -- Passion Check
+
+### 1. The "Under the Hood" Moment
+
+> Write a specific real technical hurdle you faced and how you debugged it.
+>
+> **Example structure:** "When I first connected the Gemini API, I was calling it client-side and hitting CORS errors. I debugged this by checking the Network tab in DevTools which showed a 403 response. I moved the call to a Next.js API route at `/app/api/search/route.ts` which resolved it because the key was now server-side only."
+
+_[Replace this block with your own real experience.]_
+
+### 2. The Scalability Thought
+
+If this app had 50,000 travel packages instead of 5, passing the full inventory to the LLM would be too expensive and imprecise. Here is how the approach would change:
+
+- **Pre-computed embeddings** -- Generate an embedding vector for every inventory item using its title, tags, and location as input text.
+- **Vector search / top-k retrieval** -- Store embeddings in a vector database (e.g. Pinecone, Supabase pgvector). At query time, embed the user's query and perform a top-k similarity search to retrieve the 10-20 most relevant items.
+- **Pass only candidates to LLM** -- Send only these top-k items to the LLM instead of the full 50,000-item dataset, dramatically reducing token usage and cost.
+- **Cache identical prompts** -- Cache results for identical or near-identical queries so repeated searches skip the LLM entirely.
+- **Short system prompts** -- Keep prompts concise to minimize cost per request.
+- **Cost controls / temperature near 0** -- Use `temperature: 0` for deterministic output and set token budgets to cap per-request spend.
+
+### 3. The AI Reflection
+
+> Name the specific AI tool you used (GitHub Copilot, ChatGPT, Cursor, etc.), then describe **one specific bad or buggy suggestion** it gave you and how you caught and fixed it. Be concrete about what the bug was.
+
+_[Replace this block with your own real experience.]_

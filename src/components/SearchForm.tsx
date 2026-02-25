@@ -19,6 +19,7 @@ interface SearchFormProps {
   query: string;
   onChange: (value: string) => void;
   onSubmit: (e: React.FormEvent) => void;
+  onChipSearch: (chipQuery: string) => void;
   loading: boolean;
   hint?: string;
 }
@@ -27,6 +28,7 @@ export default function SearchForm({
   query,
   onChange,
   onSubmit,
+  onChipSearch,
   loading,
   hint,
 }: SearchFormProps) {
@@ -59,7 +61,7 @@ export default function SearchForm({
               key={label}
               type="button"
               disabled={loading}
-              onClick={() => onChange(label)}
+              onClick={() => onChipSearch(label)}
               style={{
                 borderRadius: 999,
                 border: isActive

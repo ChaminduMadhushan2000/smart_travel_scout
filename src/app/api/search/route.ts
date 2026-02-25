@@ -10,6 +10,29 @@ const MAX_QUERY_LENGTH = 500;
 const LLM_TIMEOUT_MS = 15_000; // 15 s — generous, but prevents hanging forever
 
 // ---------------------------------------------------------------------------
+// Rate limiter — simple in-memory, 10 requests per IP per 60-second window.
+// ---------------------------------------------------------------------------
+const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
+
+function isRateLimited(ip: string): boolean {
+  const now = Date.now();
+  const windowMs = 60_000; // 1 minute
+  const maxRequests = 10;
+
+  const entry = rateLimitMap.get(ip);
+
+  if (!entry || now > entry.resetAt) {
+    rateLimitMap.set(ip, { count: 1, resetAt: now + windowMs });
+    return false;
+  }
+
+  if (entry.count >= maxRequests) return true;
+
+  entry.count++;
+  return false;
+}
+
+// ---------------------------------------------------------------------------
 // Request schema — validates the incoming POST body before we touch the LLM.
 // A `.transform(trim)` strips whitespace so "   " is caught by `.min(1)`.
 // ---------------------------------------------------------------------------
@@ -51,6 +74,26 @@ const AIResponseSchema = z.object({
 export type AIResponse = z.infer<typeof AIResponseSchema>;
 
 // ---------------------------------------------------------------------------
+// Typed interfaces for API request / response (used by client & server).
+// ---------------------------------------------------------------------------
+
+/** Shape of the POST body sent by the frontend. */
+export type SearchRequest = {
+  query: string;
+};
+
+/** Successful API response containing matched inventory items. */
+export type SearchResponse = {
+  matches: Array<{ id: number; reason: string }>;
+  hint?: string;
+};
+
+/** Error API response with a user-facing message. */
+export type SearchErrorResponse = {
+  error: string;
+};
+
+// ---------------------------------------------------------------------------
 // System prompt — strictly grounds the model to our inventory with a
 // scoring rubric so the LLM ranks deterministically.
 // ---------------------------------------------------------------------------
@@ -83,6 +126,15 @@ Respond with ONLY valid JSON — no markdown, no code fences, no extra text:
 // POST /api/search
 // ---------------------------------------------------------------------------
 export async function POST(req: NextRequest) {
+  // ── Rate-limit check ────────────────────────────────────────────────
+  const ip = req.headers.get("x-forwarded-for") ?? "unknown";
+  if (isRateLimited(ip)) {
+    return NextResponse.json(
+      { error: "Too many requests. Please wait a moment and try again." },
+      { status: 429 },
+    );
+  }
+
   try {
     // ── 0. Ensure API key is available at runtime ────────────────────────
     const apiKey = process.env.GEMINI_API_KEY;
@@ -107,28 +159,30 @@ export async function POST(req: NextRequest) {
 
     const userQuery = parsed.data.query; // already trimmed by Zod transform
 
-    // ── 2. Call the LLM with a timeout ──────────────────────────────────
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), LLM_TIMEOUT_MS);
-
+    // ── 2. Call the LLM with a timeout via Promise.race ─────────────────
     let responseText = "";
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
     try {
-      const model = genAI.getGenerativeModel({ 
-      model: "gemini-2.5-flash",
-      systemInstruction: SYSTEM_PROMPT, // Move the prompt here
-      generationConfig: { 
+      const model = genAI.getGenerativeModel({
+        model: "gemini-2.5-flash",
+        systemInstruction: SYSTEM_PROMPT,
+        generationConfig: {
           responseMimeType: "application/json",
-          temperature: 0.1, 
-      } 
-    });
-    
-    const result = await model.generateContent(
-      userQuery, 
-      { signal: controller.signal } as any
-    );
-      
+          temperature: 0,
+        },
+      });
+
+      const resultPromise = model.generateContent(userQuery);
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        timeoutId = setTimeout(() => {
+          const err = new Error("LLM request timed out");
+          err.name = "AbortError";
+          reject(err);
+        }, LLM_TIMEOUT_MS);
+      });
+
+      const result = await Promise.race([resultPromise, timeoutPromise]);
       responseText = result.response.text();
-      
     } catch (err) {
       // Distinguish timeout from other failures for a friendlier message
       const isTimeout =
@@ -143,7 +197,7 @@ export async function POST(req: NextRequest) {
         { status: 502 },
       );
     } finally {
-      clearTimeout(timer);
+      if (timeoutId) clearTimeout(timeoutId);
     }
 
     // ── 3. Parse JSON from LLM response ─────────────────────────────────
@@ -176,6 +230,39 @@ export async function POST(req: NextRequest) {
     const safeMatches = validated.data.matches.filter((m) =>
       VALID_IDS.has(m.id),
     );
+
+    // ── 6. Edge-case hints for specific empty-result scenarios ──────────
+    if (safeMatches.length === 0) {
+      // Budget outlier: user's stated budget is below our cheapest package
+      const budgetMatch = userQuery.match(/under\s*\$?(\d+)/i);
+      if (budgetMatch) {
+        const budget = parseInt(budgetMatch[1], 10);
+        const cheapest = Math.min(...travelPackages.map((p) => p.price));
+        if (budget < cheapest) {
+          return NextResponse.json({
+            matches: [],
+            hint: `No experiences match a budget of $${budget}. Our most affordable option starts at $${cheapest}. Try increasing your budget.`,
+          });
+        }
+      }
+
+      // Conflicting constraints: query mixes opposing tag families
+      const conflictPairs: [string[], string[]][] = [
+        [["beach", "surf", "coast", "ocean"], ["cold", "mountain", "snow", "highland"]],
+        [["surfing", "diving", "snorkel"], ["climbing", "hiking", "trek"]],
+      ];
+      const lower = userQuery.toLowerCase();
+      for (const [groupA, groupB] of conflictPairs) {
+        const hasA = groupA.some((t) => lower.includes(t));
+        const hasB = groupB.some((t) => lower.includes(t));
+        if (hasA && hasB) {
+          return NextResponse.json({
+            matches: [],
+            hint: "Your request combines things that don\u2019t overlap in our collection. Try focusing on one vibe or activity.",
+          });
+        }
+      }
+    }
 
     // Return matches (may be empty — that's a valid "no results" state)
     return NextResponse.json({ matches: safeMatches });
