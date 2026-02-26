@@ -1,3 +1,5 @@
+// globe emoji that floats up and down, shown before user searches anything
+
 export default function GlobeIcon() {
   return (
     <span

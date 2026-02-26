@@ -1,3 +1,6 @@
+// root layout - sets up the Inter font and page metadata
+// every page gets wrapped by this layout automatically
+
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";

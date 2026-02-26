@@ -1,3 +1,8 @@
+// page.tsx - main page of the app
+// user types a query or clicks a chip -> we call the search API ->
+// API gives back matching IDs -> we look up the full package details
+// from our local data (so the AI never returns fake info)
+
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -7,11 +12,13 @@ import BackgroundOrbs from "@/components/BackgroundOrbs";
 import { packageById, type TravelPackage } from "@/lib/data";
 import type { SearchResponse, SearchErrorResponse } from "./api/search/route";
 
+// one search result = the full package + reason from the AI
 interface SearchResult {
   package: TravelPackage;
   reason: string;
 }
 
+// shows different greeting based on time of day
 function getGreeting(): string {
   const h = new Date().getHours();
   if (h < 12) return "Good morning";

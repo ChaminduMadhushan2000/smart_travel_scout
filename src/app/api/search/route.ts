@@ -1,10 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
-import { GoogleGenerativeAI } from '@google/generative-ai';
+import { GoogleGenerativeAI } from "@google/generative-ai";
 import { z } from "zod";
 import { travelPackages, packageById, VALID_IDS } from "@/lib/data";
 
+// --- constants ---
+
 const MAX_QUERY_LENGTH = 500;
-const LLM_TIMEOUT_MS = 15_000;
+const LLM_TIMEOUT_MS = 15_000; // 15 sec timeout for gemini
+const CACHE_TTL_MS = 5 * 60_000; // cache same queries for 5 mins to save API calls
+
+// --- simple rate limiter (10 requests per minute per IP) ---
 
 const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
 
@@ -25,6 +30,73 @@ function isRateLimited(ip: string): boolean {
   entry.count++;
   return false;
 }
+
+// --- prompt cache ---
+// if someone searches the same thing again we just return the cached result
+// instead of calling the AI again (saves tokens and money)
+
+interface CacheEntry {
+  data: { matches: Array<{ id: number; reason: string }> };
+  expiresAt: number;
+}
+
+const promptCache = new Map<string, CacheEntry>();
+
+function getCached(query: string): CacheEntry["data"] | null {
+  const key = query.toLowerCase().trim();
+  const entry = promptCache.get(key);
+  if (!entry) return null;
+  if (Date.now() > entry.expiresAt) {
+    promptCache.delete(key);
+    return null;
+  }
+  return entry.data;
+}
+
+function setCache(query: string, data: CacheEntry["data"]): void {
+  const key = query.toLowerCase().trim();
+  promptCache.set(key, { data, expiresAt: Date.now() + CACHE_TTL_MS });
+}
+
+// --- keyword shortcut ---
+// for simple one-word queries like "beaches" or "culture" we can match
+// directly against the tags without bothering the AI at all
+
+const TAG_KEYWORD_MAP: Record<string, string[]> = {
+  beaches: ["beach"],
+  beach: ["beach"],
+  nature: ["nature"],
+  culture: ["culture", "history"],
+  adventure: ["adventure"],
+  hiking: ["hiking"],
+  surfing: ["surfing"],
+  history: ["history", "culture"],
+  wildlife: ["animals"],
+  safari: ["animals"],
+  photography: ["photography"],
+  climbing: ["climbing"],
+  walking: ["walking"],
+};
+
+function tryKeywordMatch(query: string): Array<{ id: number; reason: string }> | null {
+  const lower = query.toLowerCase().trim();
+  const tags = TAG_KEYWORD_MAP[lower];
+  if (!tags) return null;
+
+  const matches: Array<{ id: number; reason: string }> = [];
+  for (const pkg of travelPackages) {
+    const overlap = pkg.tags.filter((t) => tags.includes(t));
+    if (overlap.length > 0) {
+      matches.push({
+        id: pkg.id,
+        reason: `Matched '${overlap.join("', '")}' tag${overlap.length > 1 ? "s" : ""}.`,
+      });
+    }
+  }
+  return matches;
+}
+
+// --- zod schemas for validating request and AI response ---
 
 const RequestSchema = z.object({
   query: z
@@ -59,6 +131,8 @@ const AIResponseSchema = z.object({
 
 export type AIResponse = z.infer<typeof AIResponseSchema>;
 
+// types used by the frontend too
+
 export type SearchRequest = {
   query: string;
 };
@@ -72,51 +146,38 @@ export type SearchErrorResponse = {
   error: string;
 };
 
-const SYSTEM_PROMPT = `You are a strict travel-matching assistant. Your ONLY job is to match the user's natural-language travel request to items from the INVENTORY below.
+// --- system prompt for gemini ---
+// we send the full inventory in the prompt so the AI is grounded to real data
+// it only returns IDs and reasons, we look up the rest server-side
 
-INVENTORY (JSON):
-${JSON.stringify(travelPackages, null, 2)}
+const SYSTEM_PROMPT = `You are a strict travel-matching assistant. Match the user query to INVENTORY items ONLY.
 
-STEP 1 — EXTRACT CONSTRAINTS from the user query:
-• Budget: Look for phrases like "under $X", "below $X", "less than $X", "within $X", "cheap", "budget", "affordable", "expensive", "luxury", "premium".
-  - "cheap"/"budget"/"affordable" → treat as under $60
-  - "expensive"/"luxury"/"premium" → treat as $200+
-• Tags/activities: Map user words to inventory tags (e.g. "hike"→"hiking", "beach"→"beach", "culture"→"culture", "history"→"history", "adventure"→"adventure", "surf"→"surfing", "wildlife"/"safari"→"animals", "photo"→"photography", "climb"→"climbing", "walk"→"walking", "chill"→"young-vibe", "nature"→"nature", "cold"→"cold", "view"→"view")
-• Location: Check if user mentions a specific destination.
+INVENTORY:
+${JSON.stringify(travelPackages)}
 
-RELATED TAG GROUPS (treat these as related when scoring vibe):
-• "culture" ↔ "history" ↔ "walking" (cultural exploration)
-• "nature" ↔ "hiking" ↔ "cold" ↔ "view" (outdoor/nature)
-• "beach" ↔ "surfing" ↔ "young-vibe" (coastal/relaxation)
-• "adventure" ↔ "animals" ↔ "photography" (thrill/safari)
-• "climbing" ↔ "hiking" ↔ "view" (active exploration)
+TAG MAP: hike→hiking, surf→surfing, wildlife/safari→animals, photo→photography, climb→climbing, walk→walking, chill→young-vibe, cheap/budget/affordable→under $60, expensive/luxury/premium→$200+.
 
-STEP 2 — HARD CONSTRAINTS (must ALL be satisfied, no exceptions):
-• If the user specifies a budget, ONLY include items whose price is STRICTLY within that budget. An item priced $120 DOES NOT match "under $10" or "under $100". This is non-negotiable.
-• If the user mentions a specific location, ONLY include items at that location.
+RELATED TAGS: culture↔history↔walking | nature↔hiking↔cold↔view | beach↔surfing↔young-vibe | adventure↔animals↔photography | climbing↔hiking↔view.
 
-STEP 3 — SOFT SCORING (among items that pass ALL hard constraints):
-• Tag overlap: +3 per matching tag (exact match)
-• Related tag: +2 if the item has a tag in the same related group as the user's request
-• Vibe alignment: +1 if the overall mood matches
+HARD CONSTRAINTS (all must pass):
+- Budget: item price must be STRICTLY within budget. $120 does NOT match "under $100".
+- Location: if user names a place, only items at that place.
 
-IMPORTANT: An item MUST have at least ONE matching or related tag to be included. Do NOT return items that only match on price but have zero tag or vibe relevance.
+SCORING (among passing items): +3 exact tag, +2 related tag, +1 vibe.
+- Items MUST have ≥1 matching/related tag UNLESS the query is budget-only (e.g. "under $100"), in which case return ALL within budget.
 
-RULES — you MUST follow every rule:
-1. Return ONLY items whose "id" exists in the INVENTORY above. NEVER invent, fabricate, or suggest any destination, title, or id not listed.
-2. An item MUST pass ALL hard constraints to be included. NO EXCEPTIONS.
-3. If NO item passes all hard constraints, return an empty "matches" array. Do NOT relax constraints.
-4. Rank passing items by descending soft score.
-5. For each match, write a concise "reason" (≤ 200 chars) that explains WHICH constraints were checked and HOW this item satisfies them (e.g. "Matches 'hiking' tag, price ($120) is within budget.").
-6. Return at most 5 matches.
+RULES:
+1. Only return IDs from INVENTORY. Never invent.
+2. Empty "matches" if nothing passes hard constraints.
+3. Max 5 results, ranked by score.
+4. Each "reason" ≤200 chars, explain which constraints matched.
 
-Respond with ONLY valid JSON — no markdown, no code fences, no extra text:
-{
-  "matches": [
-    { "id": <number>, "reason": "<string>" }
-  ]
-}`;
+Respond ONLY with valid JSON: {"matches":[{"id":<number>,"reason":"<string>"}]}`;
 
+
+// --- budget parsing helpers ---
+// figures out if the user mentioned a budget like "under $100" or "cheap"
+// we use this server-side too as a safety net in case the AI ignores the budget
 
 function extractBudget(query: string): number | null {
   const lower = query.toLowerCase();
@@ -140,7 +201,7 @@ function extractBudget(query: string): number | null {
   return null;
 }
 
-
+// checks if user wants expensive/luxury stuff (returns $200 as minimum price)
 function wantsExpensive(query: string): number | null {
   const lower = query.toLowerCase();
   if (/\b(expensive|luxury|luxurious|premium|high[- ]?end|splurge)\b/.test(lower)) {
@@ -149,7 +210,12 @@ function wantsExpensive(query: string): number | null {
   return null;
 }
 
+// --- main POST handler ---
+// flow: rate limit -> validate -> check cache -> try keyword shortcut ->
+// call gemini -> validate response with zod -> filter by budget -> return
+
 export async function POST(req: NextRequest) {
+  // 1. check rate limit
   const ip = req.headers.get("x-forwarded-for") ?? "unknown";
   if (isRateLimited(ip)) {
     return NextResponse.json(
@@ -159,6 +225,7 @@ export async function POST(req: NextRequest) {
   }
 
   try {
+    // 2. make sure API key is set
     const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) {
       return NextResponse.json(
@@ -169,6 +236,7 @@ export async function POST(req: NextRequest) {
 
     const genAI = new GoogleGenerativeAI(apiKey);
 
+    // 3. parse and validate the request body with zod
     const body = await req.json().catch(() => null);
     const parsed = RequestSchema.safeParse(body);
 
@@ -180,6 +248,36 @@ export async function POST(req: NextRequest) {
 
     const userQuery = parsed.data.query;
 
+    // 4. check if we already have this query cached
+    const cached = getCached(userQuery);
+    if (cached) {
+      return NextResponse.json(cached);
+    }
+
+    // 5. if its a simple keyword like "beaches", skip the AI entirely
+    const keywordResult = tryKeywordMatch(userQuery);
+    if (keywordResult) {
+      // still apply budget filter even for keyword matches
+      const budgetCeiling = extractBudget(userQuery);
+      const budgetFloor = wantsExpensive(userQuery);
+      let filtered = keywordResult;
+      if (budgetCeiling !== null) {
+        filtered = keywordResult.filter((m) => {
+          const pkg = packageById.get(m.id);
+          return pkg !== undefined && pkg.price <= budgetCeiling;
+        });
+      } else if (budgetFloor !== null) {
+        filtered = keywordResult.filter((m) => {
+          const pkg = packageById.get(m.id);
+          return pkg !== undefined && pkg.price >= budgetFloor;
+        });
+      }
+      const response = { matches: filtered };
+      setCache(userQuery, response);
+      return NextResponse.json(response);
+    }
+
+    // 6. call gemini AI with a timeout so it doesnt hang forever
     let responseText = "";
     let timeoutId: ReturnType<typeof setTimeout> | undefined;
     try {
@@ -227,6 +325,7 @@ export async function POST(req: NextRequest) {
       if (timeoutId) clearTimeout(timeoutId);
     }
 
+    // 7. parse the AI's JSON response and validate with zod
     let llmJson: unknown;
     try {
       llmJson = JSON.parse(responseText);
@@ -251,6 +350,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // 8. double check budget on our side too (don't fully trust the AI)
     const safeMatches = validated.data.matches.filter((m) =>
       VALID_IDS.has(m.id),
     );
@@ -271,6 +371,7 @@ export async function POST(req: NextRequest) {
       });
     }
 
+    // 9. if no results, give the user a helpful hint
     if (filteredMatches.length === 0) {
       let hint: string | undefined;
 
@@ -308,7 +409,10 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ matches: [], ...(hint ? { hint } : {}) });
     }
 
-    return NextResponse.json({ matches: filteredMatches });
+    // 10. all good - cache it and send back the results
+    const successResponse = { matches: filteredMatches };
+    setCache(userQuery, successResponse);
+    return NextResponse.json(successResponse);
   } catch (err: unknown) {
     console.error("[search] Unhandled error:", err);
 

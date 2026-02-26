@@ -1,10 +1,14 @@
+// SearchInput - the text input field with a search icon, clear button,
+// and character counter. also shows a hint message if validation fails
+
+// keep this in sync with the same constant in route.ts
 const MAX_QUERY_LENGTH = 500;
 
 interface SearchInputProps {
   value: string;
   onChange: (value: string) => void;
   disabled?: boolean;
-  hint?: string;
+  hint?: string; // validation hint shown below input
 }
 
 export default function SearchInput({

@@ -1,8 +1,12 @@
+// SearchForm - has the search input, submit button, and the quick filter chips
+// clicking a chip fires a search right away without needing to type
+
 "use client";
 
 import SearchInput from "@/components/SearchInput";
 import SubmitButton from "@/components/SubmitButton";
 
+// these are the chip labels shown below the search bar
 const QUICK_FILTERS = [
   "Beaches",
   "Nature",

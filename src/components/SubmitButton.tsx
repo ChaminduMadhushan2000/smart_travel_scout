@@ -1,3 +1,6 @@
+// SubmitButton - the purple gradient button
+// shows a spinner and "Searching..." text while the API call is loading
+
 interface SubmitButtonProps {
   loading?: boolean;
   disabled?: boolean;

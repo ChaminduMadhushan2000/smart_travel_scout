@@ -1,3 +1,6 @@
+// BackgroundOrbs - just 3 blurry gradient circles floating in the background
+// purely for aesthetics, no logic here
+
 export default function BackgroundOrbs() {
   return (
     <>

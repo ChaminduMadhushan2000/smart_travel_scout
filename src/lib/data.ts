@@ -1,3 +1,8 @@
+// data.ts - this is where all the travel packages are stored
+// both the AI prompt and the backend use this same data, so if we add
+// a new package we only need to update it here
+
+// all the possible tags a package can have
 export type PackageTag =
   | "cold"
   | "nature"
@@ -14,6 +19,7 @@ export type PackageTag =
   | "climbing"
   | "view";
 
+// interface for a single travel package
 export interface TravelPackage {
   readonly id: number;
   readonly title: string;
@@ -22,6 +28,7 @@ export interface TravelPackage {
   readonly tags: PackageTag[];
 }
 
+// our 5 Sri Lankan travel packages (hardcoded for now)
 export const travelPackages: readonly TravelPackage[] = [
   { id: 1, title: "High-Altitude Tea Trails", location: "Nuwara Eliya", price: 120, tags: ["cold", "nature", "hiking"] },
   { id: 2, title: "Coastal Heritage Wander", location: "Galle Fort", price: 45, tags: ["history", "culture", "walking"] },
@@ -30,8 +37,10 @@ export const travelPackages: readonly TravelPackage[] = [
   { id: 5, title: "Ancient City Exploration", location: "Sigiriya", price: 110, tags: ["history", "climbing", "view"] },
 ] as const;
 
+// set of valid IDs so we can quickly check if the AI returned a real package
 export const VALID_IDS = new Set(travelPackages.map((p) => p.id));
 
+// map for quick lookup by id instead of looping through the array every time
 export const packageById = new Map(
   travelPackages.map((p) => [p.id, p]),
 );
