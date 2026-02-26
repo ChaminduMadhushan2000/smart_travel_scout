@@ -206,7 +206,15 @@ export async function POST(req: NextRequest) {
     } catch (err) {
       const isTimeout =
         err instanceof Error && err.name === "AbortError";
+      const isRateLimit =
+        err instanceof Error && /429/i.test(err.message);
       console.error("[search] LLM call failed:", err);
+      if (isRateLimit) {
+        return NextResponse.json(
+          { error: "You are searching too fast! Please wait 60 seconds and try again." },
+          { status: 429 },
+        );
+      }
       return NextResponse.json(
         {
           error: isTimeout
