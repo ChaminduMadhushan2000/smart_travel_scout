@@ -84,13 +84,23 @@ STEP 1 — EXTRACT CONSTRAINTS from the user query:
 • Tags/activities: Map user words to inventory tags (e.g. "hike"→"hiking", "beach"→"beach", "culture"→"culture", "history"→"history", "adventure"→"adventure", "surf"→"surfing", "wildlife"/"safari"→"animals", "photo"→"photography", "climb"→"climbing", "walk"→"walking", "chill"→"young-vibe", "nature"→"nature", "cold"→"cold", "view"→"view")
 • Location: Check if user mentions a specific destination.
 
+RELATED TAG GROUPS (treat these as related when scoring vibe):
+• "culture" ↔ "history" ↔ "walking" (cultural exploration)
+• "nature" ↔ "hiking" ↔ "cold" ↔ "view" (outdoor/nature)
+• "beach" ↔ "surfing" ↔ "young-vibe" (coastal/relaxation)
+• "adventure" ↔ "animals" ↔ "photography" (thrill/safari)
+• "climbing" ↔ "hiking" ↔ "view" (active exploration)
+
 STEP 2 — HARD CONSTRAINTS (must ALL be satisfied, no exceptions):
 • If the user specifies a budget, ONLY include items whose price is STRICTLY within that budget. An item priced $120 DOES NOT match "under $10" or "under $100". This is non-negotiable.
 • If the user mentions a specific location, ONLY include items at that location.
 
 STEP 3 — SOFT SCORING (among items that pass ALL hard constraints):
-• Tag overlap: +3 per matching tag
-• Vibe alignment: +1 if the overall mood matches (e.g. "chill" → beach/young-vibe tags)
+• Tag overlap: +3 per matching tag (exact match)
+• Related tag: +2 if the item has a tag in the same related group as the user's request
+• Vibe alignment: +1 if the overall mood matches
+
+IMPORTANT: An item MUST have at least ONE matching or related tag to be included. Do NOT return items that only match on price but have zero tag or vibe relevance.
 
 RULES — you MUST follow every rule:
 1. Return ONLY items whose "id" exists in the INVENTORY above. NEVER invent, fabricate, or suggest any destination, title, or id not listed.

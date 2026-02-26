@@ -27,11 +27,13 @@ AI-powered travel experience finder for Sri Lanka. Type a natural-language reque
 
 3. Set up environment variables
 
+   Create a `.env.local` file in the project root:
+
    ```bash
-   cp .env.local
+   echo GEMINI_API_KEY=your_key_here > .env.local
    ```
 
-   Then open `.env.local` and add your Gemini API key.
+   Replace `your_key_here` with your Gemini API key from https://aistudio.google.com
 
 4. Run the development server
 
