@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { z } from "zod";
-import { travelPackages, VALID_IDS } from "@/lib/data";
+import { travelPackages, packageById, VALID_IDS } from "@/lib/data";
 
 const MAX_QUERY_LENGTH = 500;
 const LLM_TIMEOUT_MS = 15_000;
@@ -72,23 +72,33 @@ export type SearchErrorResponse = {
   error: string;
 };
 
-const SYSTEM_PROMPT = `You are a travel-matching assistant. Your ONLY job is to match the user's natural-language travel request to items from the INVENTORY below.
+const SYSTEM_PROMPT = `You are a strict travel-matching assistant. Your ONLY job is to match the user's natural-language travel request to items from the INVENTORY below.
 
 INVENTORY (JSON):
 ${JSON.stringify(travelPackages, null, 2)}
 
-MATCHING RUBRIC — score each item and return only those with a positive score:
+STEP 1 — EXTRACT CONSTRAINTS from the user query:
+• Budget: Look for phrases like "under $X", "below $X", "less than $X", "within $X", "cheap", "budget", "affordable", "expensive", "luxury", "premium".
+  - "cheap"/"budget"/"affordable" → treat as under $60
+  - "expensive"/"luxury"/"premium" → treat as $200+
+• Tags/activities: Map user words to inventory tags (e.g. "hike"→"hiking", "beach"→"beach", "culture"→"culture", "history"→"history", "adventure"→"adventure", "surf"→"surfing", "wildlife"/"safari"→"animals", "photo"→"photography", "climb"→"climbing", "walk"→"walking", "chill"→"young-vibe", "nature"→"nature", "cold"→"cold", "view"→"view")
+• Location: Check if user mentions a specific destination.
+
+STEP 2 — HARD CONSTRAINTS (must ALL be satisfied, no exceptions):
+• If the user specifies a budget, ONLY include items whose price is STRICTLY within that budget. An item priced $120 DOES NOT match "under $10" or "under $100". This is non-negotiable.
+• If the user mentions a specific location, ONLY include items at that location.
+
+STEP 3 — SOFT SCORING (among items that pass ALL hard constraints):
 • Tag overlap: +3 per matching tag
-• Price fit: +2 if the item's price is within the user's stated budget (or ±20% if no budget stated)
-• Location preference: +2 if the user mentions the destination
-• Vibe alignment: +1 if the overall mood matches (e.g. "chill" → beach tags)
+• Vibe alignment: +1 if the overall mood matches (e.g. "chill" → beach/young-vibe tags)
 
 RULES — you MUST follow every rule:
 1. Return ONLY items whose "id" exists in the INVENTORY above. NEVER invent, fabricate, or suggest any destination, title, or id not listed.
-2. Rank results by descending score.
-3. If no item scores positively, return an empty "matches" array.
-4. For each match, write a concise "reason" (≤ 200 chars) citing the specific tags, price, or location that earned the score.
-5. Return at most 5 matches.
+2. An item MUST pass ALL hard constraints to be included. NO EXCEPTIONS.
+3. If NO item passes all hard constraints, return an empty "matches" array. Do NOT relax constraints.
+4. Rank passing items by descending soft score.
+5. For each match, write a concise "reason" (≤ 200 chars) that explains WHICH constraints were checked and HOW this item satisfies them (e.g. "Matches 'hiking' tag, price ($120) is within budget.").
+6. Return at most 5 matches.
 
 Respond with ONLY valid JSON — no markdown, no code fences, no extra text:
 {
@@ -96,6 +106,38 @@ Respond with ONLY valid JSON — no markdown, no code fences, no extra text:
     { "id": <number>, "reason": "<string>" }
   ]
 }`;
+
+
+function extractBudget(query: string): number | null {
+  const lower = query.toLowerCase();
+
+  const explicitMatch = lower.match(
+    /(?:under|below|less\s+than|within|up\s+to|max(?:imum)?)\s*\$?\s*(\d+)/
+  );
+  if (explicitMatch) {
+    return parseInt(explicitMatch[1], 10);
+  }
+
+  const suffixMatch = lower.match(/\$\s*(\d+)\s*(?:or\s+(?:less|under|below)|max(?:imum)?)/);
+  if (suffixMatch) {
+    return parseInt(suffixMatch[1], 10);
+  }
+
+  if (/\b(cheap|budget|affordable|low[- ]?cost|inexpensive)\b/.test(lower)) {
+    return 60;
+  }
+
+  return null;
+}
+
+
+function wantsExpensive(query: string): number | null {
+  const lower = query.toLowerCase();
+  if (/\b(expensive|luxury|luxurious|premium|high[- ]?end|splurge)\b/.test(lower)) {
+    return 200;
+  }
+  return null;
+}
 
 export async function POST(req: NextRequest) {
   const ip = req.headers.get("x-forwarded-for") ?? "unknown";
@@ -195,37 +237,60 @@ export async function POST(req: NextRequest) {
       VALID_IDS.has(m.id),
     );
 
-    if (safeMatches.length === 0) {
-      const budgetMatch = userQuery.match(/under\s*\$?(\d+)/i);
-      if (budgetMatch) {
-        const budget = parseInt(budgetMatch[1], 10);
-        const cheapest = Math.min(...travelPackages.map((p) => p.price));
-        if (budget < cheapest) {
-          return NextResponse.json({
-            matches: [],
-            hint: `No experiences match a budget of $${budget}. Our most affordable option starts at $${cheapest}. Try increasing your budget.`,
-          });
-        }
-      }
+    const budgetCeiling = extractBudget(userQuery);
+    const budgetFloor = wantsExpensive(userQuery);
+    let filteredMatches = safeMatches;
 
-      const conflictPairs: [string[], string[]][] = [
-        [["beach", "surf", "coast", "ocean"], ["cold", "mountain", "snow", "highland"]],
-        [["surfing", "diving", "snorkel"], ["climbing", "hiking", "trek"]],
-      ];
-      const lower = userQuery.toLowerCase();
-      for (const [groupA, groupB] of conflictPairs) {
-        const hasA = groupA.some((t) => lower.includes(t));
-        const hasB = groupB.some((t) => lower.includes(t));
-        if (hasA && hasB) {
-          return NextResponse.json({
-            matches: [],
-            hint: "Your request combines things that don\u2019t overlap in our collection. Try focusing on one vibe or activity.",
-          });
-        }
-      }
+    if (budgetCeiling !== null) {
+      filteredMatches = safeMatches.filter((m) => {
+        const pkg = packageById.get(m.id);
+        return pkg !== undefined && pkg.price <= budgetCeiling;
+      });
+    } else if (budgetFloor !== null) {
+      filteredMatches = safeMatches.filter((m) => {
+        const pkg = packageById.get(m.id);
+        return pkg !== undefined && pkg.price >= budgetFloor;
+      });
     }
 
-    return NextResponse.json({ matches: safeMatches });
+    if (filteredMatches.length === 0) {
+      let hint: string | undefined;
+
+      if (budgetCeiling !== null) {
+        const withinBudget = travelPackages.filter((p) => p.price <= budgetCeiling);
+        if (withinBudget.length === 0) {
+          const cheapest = Math.min(...travelPackages.map((p) => p.price));
+          hint = `No experiences fit a $${budgetCeiling} budget. Our most affordable option starts at $${cheapest}. Try increasing your budget.`;
+        } else {
+          hint = `No experiences match all your criteria within $${budgetCeiling}. ${withinBudget.length} option${withinBudget.length > 1 ? "s" : ""} exist${withinBudget.length === 1 ? "s" : ""} in that price range — try broadening your interests.`;
+        }
+      } else if (budgetFloor !== null) {
+        const aboveFloor = travelPackages.filter((p) => p.price >= budgetFloor);
+        if (aboveFloor.length === 0) {
+          hint = `No experiences are priced at $${budgetFloor}+. Try lowering your expectations or exploring mid-range options.`;
+        } else {
+          hint = `No experiences match your criteria at the $${budgetFloor}+ price point. Try broadening your interests.`;
+        }
+      } else {
+        const conflictPairs: [string[], string[]][] = [
+          [["beach", "surf", "coast", "ocean"], ["cold", "mountain", "snow", "highland"]],
+          [["surfing", "diving", "snorkel"], ["climbing", "hiking", "trek"]],
+        ];
+        const lower = userQuery.toLowerCase();
+        for (const [groupA, groupB] of conflictPairs) {
+          const hasA = groupA.some((t) => lower.includes(t));
+          const hasB = groupB.some((t) => lower.includes(t));
+          if (hasA && hasB) {
+            hint = "Your request combines things that don\u2019t overlap in our collection. Try focusing on one vibe or activity.";
+            break;
+          }
+        }
+      }
+
+      return NextResponse.json({ matches: [], ...(hint ? { hint } : {}) });
+    }
+
+    return NextResponse.json({ matches: filteredMatches });
   } catch (err: unknown) {
     console.error("[search] Unhandled error:", err);
 
